@@ -8,13 +8,15 @@ public class Pointer {
     private final long id;
 
     /**
-     * Local pointer id, using the lowest possible values to fill the {@link android.view.MotionEvent.PointerProperties PointerProperties}.
+     * Local pointer id, using the lowest possible values to fill the
+     * {@link android.view.MotionEvent.PointerProperties PointerProperties}.
      */
     private final int localId;
 
     private Point point;
     private float pressure;
     private boolean up;
+    private int buttons;
 
     public Pointer(long id, int localId) {
         this.id = id;
@@ -51,5 +53,13 @@ public class Pointer {
 
     public void setUp(boolean up) {
         this.up = up;
+    }
+
+    public int getButtons() {
+        return buttons;
+    }
+
+    public void setButtons(int buttons) {
+        this.buttons = buttons;
     }
 }

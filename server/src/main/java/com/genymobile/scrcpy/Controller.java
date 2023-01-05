@@ -1,5 +1,7 @@
 package com.genymobile.scrcpy;
 
+import com.genymobile.scrcpy.wrappers.InputManager;
+
 import android.os.Build;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -196,22 +198,23 @@ public class Controller {
         Pointer pointer = pointersState.get(pointerIndex);
         pointer.setPoint(point);
         pointer.setPressure(pressure);
-        pointer.setUp(action == MotionEvent.ACTION_UP);
 
         int source;
-        int pointerCount = pointersState.update(pointerProperties, pointerCoords);
         if (pointerId == POINTER_ID_MOUSE || pointerId == POINTER_ID_VIRTUAL_MOUSE) {
             // real mouse event (forced by the client when --forward-on-click)
             pointerProperties[pointerIndex].toolType = MotionEvent.TOOL_TYPE_MOUSE;
             source = InputDevice.SOURCE_MOUSE;
+            pointer.setUp(buttons == 0);
         } else {
             // POINTER_ID_GENERIC_FINGER, POINTER_ID_VIRTUAL_FINGER or real touch from device
             pointerProperties[pointerIndex].toolType = MotionEvent.TOOL_TYPE_FINGER;
             source = InputDevice.SOURCE_TOUCHSCREEN;
             // Buttons must not be set for touch events
             buttons = 0;
+            pointer.setUp(action == MotionEvent.ACTION_UP);
         }
 
+        int pointerCount = pointersState.update(pointerProperties, pointerCoords);
         if (pointerCount == 1) {
             if (action == MotionEvent.ACTION_DOWN) {
                 lastTouchDown = now;
@@ -225,9 +228,68 @@ public class Controller {
             }
         }
 
+        // Chrome requires mouses to have correct
+        // ACTION_DOWN -> ACTION_BUTTON_PRESS -> ACTION_BUTTON_RELEASE -> ACTION_UP
+        // sequence to work properly
+        if (pointerId == POINTER_ID_MOUSE || pointerId == POINTER_ID_VIRTUAL_MOUSE) {
+            int previousButtons = pointer.getButtons();
+            pointer.setButtons(buttons);
+
+            Ln.d("Mouse action " + String.valueOf(pointer.getLocalId()) + " " + String.valueOf(previousButtons)
+                    + " " + String.valueOf(pointer.isUp()));
+            if (action == MotionEvent.ACTION_DOWN) {
+                if (previousButtons == 0) {
+                    MotionEvent downEvent = MotionEvent.obtain(lastTouchDown, now, action, pointerCount,
+                            pointerProperties, pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source, 0);
+                    if (!device.injectEvent(downEvent, Device.INJECT_MODE_ASYNC)) {
+                        return false;
+                    }
+                    Ln.d("Injected mouse down event");
+                }
+
+                MotionEvent pressEvent = MotionEvent.obtain(lastTouchDown, now, MotionEvent.ACTION_BUTTON_PRESS,
+                        pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0,
+                        source, 0);
+                int actionButton = buttons & ~previousButtons;
+                if (!InputManager.setActionButton(pressEvent, actionButton)) {
+                    return false;
+                }
+                if (!device.injectEvent(pressEvent, Device.INJECT_MODE_ASYNC)) {
+                    return false;
+                }
+                Ln.d("Injected mouse press event");
+
+                return true;
+            } else if (action == MotionEvent.ACTION_UP) {
+                MotionEvent releaseEvent = MotionEvent.obtain(lastTouchDown, now, MotionEvent.ACTION_BUTTON_RELEASE,
+                        pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0,
+                        source, 0);
+                int actionButton = previousButtons & ~buttons;
+                if (!InputManager.setActionButton(releaseEvent, actionButton)) {
+                    return false;
+                }
+                if (!device.injectEvent(releaseEvent, Device.INJECT_MODE_ASYNC)) {
+                    return false;
+                }
+                Ln.d("Injected mouse release event");
+
+                if (buttons == 0) {
+                    MotionEvent upEvent = MotionEvent.obtain(lastTouchDown, now, action, pointerCount,
+                            pointerProperties, pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source, 0);
+                    if (!device.injectEvent(upEvent, Device.INJECT_MODE_ASYNC)) {
+                        return false;
+                    }
+                    Ln.d("Injected mouse up event");
+                }
+
+                return true;
+            }
+        }
+
+        pointer.setUp(action == MotionEvent.ACTION_UP);
         MotionEvent event = MotionEvent
-                .obtain(lastTouchDown, now, action, pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source,
-                        0);
+                .obtain(lastTouchDown, now, action, pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f,
+                        DEFAULT_DEVICE_ID, 0, source, 0);
         return device.injectEvent(event, Device.INJECT_MODE_ASYNC);
     }
 
