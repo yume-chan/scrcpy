@@ -95,6 +95,7 @@ public class ControlMessageReaderTest {
         dos.writeShort(1920);
         dos.writeShort(0xffff); // pressure
         dos.writeInt(MotionEvent.BUTTON_PRIMARY);
+        dos.writeInt(MotionEvent.BUTTON_PRIMARY);
 
         byte[] packet = bos.toByteArray();
 
@@ -113,6 +114,7 @@ public class ControlMessageReaderTest {
         Assert.assertEquals(1920, event.getPosition().getScreenSize().getHeight());
         Assert.assertEquals(1f, event.getPressure(), 0f); // must be exact
         Assert.assertEquals(MotionEvent.BUTTON_PRIMARY, event.getButtons());
+        Assert.assertEquals(MotionEvent.BUTTON_PRIMARY, event.getActionButton());
     }
 
     @Test

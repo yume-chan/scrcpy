@@ -86,6 +86,93 @@ sc_mouse_processor_process_mouse_click(struct sc_mouse_processor *mp,
                                     const struct sc_mouse_click_event *event) {
     struct sc_mouse_inject *mi = DOWNCAST(mp);
 
+    // Generate correct event sequence for mouse inputs,
+    // Otherwise may cause compatibility issues with Chrome
+    // https://github.com/Genymobile/scrcpy/issues/3635
+    if (event->pointer_id == POINTER_ID_MOUSE) {
+        if (event->action == SC_ACTION_DOWN) {
+            // ACTION_DOWN on first button pressed.
+            if (event->buttons_state == event->button) {
+                struct sc_control_msg msg = {
+                    .type = SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT,
+                    .inject_touch_event = {
+                        .action = AMOTION_EVENT_ACTION_DOWN,
+                        .pointer_id = event->pointer_id,
+                        .position = event->position,
+                        .pressure = 1.f,
+                        .buttons = convert_mouse_buttons(event->buttons_state),
+                        // ACTION_DOWN doesn't have action_button
+                        .action_button = 0,
+                    }};
+
+                if (!sc_controller_push_msg(mi->controller, &msg)) {
+                    LOGW("Could not request 'inject mouse click event'");
+                    return;
+                }
+            }
+
+            // ACTION_BUTTON_PRESS on every button pressed.
+            struct sc_control_msg msg = {
+                .type = SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT,
+                .inject_touch_event = {
+                    .action = AMOTION_EVENT_ACTION_BUTTON_PRESS,
+                    .pointer_id = event->pointer_id,
+                    .position = event->position,
+                    .pressure = 1.f,
+                    // buttons is all pressed buttons combined
+                    .buttons = convert_mouse_buttons(event->buttons_state),
+                    // action_button is the changed button
+                    .action_button = convert_mouse_buttons(event->button),
+                }};
+
+            if (!sc_controller_push_msg(mi->controller, &msg)) {
+                LOGW("Could not request 'inject mouse click event'");
+                return;
+            }
+        } else {
+            // ACTION_BUTTON_RELEASE on every button released.
+            struct sc_control_msg msg = {
+                .type = SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT,
+                .inject_touch_event = {
+                    .action = AMOTION_EVENT_ACTION_BUTTON_RELEASE,
+                    .pointer_id = event->pointer_id,
+                    .position = event->position,
+                    .pressure = event->buttons_state != 0 ? 1.f : 0.f,
+                    // buttons is all pressed buttons combined
+                    .buttons = convert_mouse_buttons(event->buttons_state),
+                    // action_button is the changed button
+                    .action_button = convert_mouse_buttons(event->button),
+                }};
+
+            if (!sc_controller_push_msg(mi->controller, &msg)) {
+                LOGW("Could not request 'inject mouse click event'");
+                return;
+            }
+
+            // ACTION_UP on last button released.
+            if (event->buttons_state == 0) {
+                struct sc_control_msg msg = {
+                    .type = SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT,
+                    .inject_touch_event = {
+                        .action = AMOTION_EVENT_ACTION_UP,
+                        .pointer_id = event->pointer_id,
+                        .position = event->position,
+                        .pressure = 0.f,
+                        .buttons = 0,
+                        // ACTION_UP doesn't have action_button
+                        .action_button = 0,
+                    }};
+
+                if (!sc_controller_push_msg(mi->controller, &msg)) {
+                    LOGW("Could not request 'inject mouse click event'");
+                    return;
+                }
+            }
+        }
+
+        return;
+    }
+
     struct sc_control_msg msg = {
         .type = SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT,
         .inject_touch_event = {
@@ -94,8 +181,8 @@ sc_mouse_processor_process_mouse_click(struct sc_mouse_processor *mp,
             .position = event->position,
             .pressure = event->action == SC_ACTION_DOWN ? 1.f : 0.f,
             .buttons = convert_mouse_buttons(event->buttons_state),
-        },
-    };
+            .action_button = 0,
+        }};
 
     if (!sc_controller_push_msg(mi->controller, &msg)) {
         LOGW("Could not request 'inject mouse click event'");

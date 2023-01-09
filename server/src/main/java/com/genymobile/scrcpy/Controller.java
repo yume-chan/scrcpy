@@ -1,5 +1,7 @@
 package com.genymobile.scrcpy;
 
+import com.genymobile.scrcpy.wrappers.InputManager;
+
 import android.os.Build;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -99,7 +101,8 @@ public class Controller {
                 break;
             case ControlMessage.TYPE_INJECT_TOUCH_EVENT:
                 if (device.supportsInputEvents()) {
-                    injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getButtons());
+                    injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(),
+                            msg.getButtons(), msg.getActionButton());
                 }
                 break;
             case ControlMessage.TYPE_INJECT_SCROLL_EVENT:
@@ -179,7 +182,8 @@ public class Controller {
         return successCount;
     }
 
-    private boolean injectTouch(int action, long pointerId, Position position, float pressure, int buttons) {
+    private boolean injectTouch(int action, long pointerId, Position position, float pressure, int buttons,
+            int actionButton) {
         long now = SystemClock.uptimeMillis();
 
         Point point = device.getPhysicalPoint(position);
@@ -228,6 +232,11 @@ public class Controller {
         MotionEvent event = MotionEvent
                 .obtain(lastTouchDown, now, action, pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f, DEFAULT_DEVICE_ID, 0, source,
                         0);
+        if (actionButton != 0) {
+            if (!InputManager.setActionButton(event, actionButton)) {
+                return false;
+            }
+        }
         return device.injectEvent(event, Device.INJECT_MODE_ASYNC);
     }
 

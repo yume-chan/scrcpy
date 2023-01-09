@@ -9,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 public class ControlMessageReader {
 
     static final int INJECT_KEYCODE_PAYLOAD_LENGTH = 13;
-    static final int INJECT_TOUCH_EVENT_PAYLOAD_LENGTH = 27;
+    static final int INJECT_TOUCH_EVENT_PAYLOAD_LENGTH = 31;
     static final int INJECT_SCROLL_EVENT_PAYLOAD_LENGTH = 20;
     static final int BACK_OR_SCREEN_ON_LENGTH = 1;
     static final int SET_SCREEN_POWER_MODE_PAYLOAD_LENGTH = 1;
@@ -141,7 +141,8 @@ public class ControlMessageReader {
         Position position = readPosition(buffer);
         float pressure = Binary.u16FixedPointToFloat(buffer.getShort());
         int buttons = buffer.getInt();
-        return ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, buttons);
+        int actionButton = buffer.getInt();
+        return ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, buttons, actionButton);
     }
 
     private ControlMessage parseInjectScrollEvent() {
