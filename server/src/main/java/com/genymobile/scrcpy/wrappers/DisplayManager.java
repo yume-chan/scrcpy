@@ -4,12 +4,22 @@ import com.genymobile.scrcpy.Command;
 import com.genymobile.scrcpy.DisplayInfo;
 import com.genymobile.scrcpy.Ln;
 import com.genymobile.scrcpy.Size;
+import com.genymobile.scrcpy.Workarounds;
 
 import android.view.Display;
+import android.view.Surface;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import android.content.Context;
+import android.content.ContextWrapper;
+import android.media.projection.MediaProjection;
+import android.os.Handler;
+
+import java.lang.reflect.Method;
 
 public final class DisplayManager {
     private final Object manager; // instance of hidden class android.hardware.display.DisplayManagerGlobal
@@ -21,7 +31,8 @@ public final class DisplayManager {
     // public to call it from unit tests
     public static DisplayInfo parseDisplayInfo(String dumpsysDisplayOutput, int displayId) {
         Pattern regex = Pattern.compile(
-                "^    mOverrideDisplayInfo=DisplayInfo\\{\".*?, displayId " + displayId + ".*?(, FLAG_.*)?, real ([0-9]+) x ([0-9]+).*?, "
+                "^    mOverrideDisplayInfo=DisplayInfo\\{\".*?, displayId " + displayId
+                        + ".*?(, FLAG_.*)?, real ([0-9]+) x ([0-9]+).*?, "
                         + "rotation ([0-9]+).*?, layerStack ([0-9]+)",
                 Pattern.MULTILINE);
         Matcher m = regex.matcher(dumpsysDisplayOutput);
@@ -93,5 +104,107 @@ public final class DisplayManager {
         } catch (Exception e) {
             throw new AssertionError(e);
         }
+    }
+
+    private Object createVirtualDisplayConfig(String name, int width, int height, int density, int flags,
+            Surface surface, String uniqueId, int displayIdToMirror, boolean windowManagerMirroring)
+            throws IllegalAccessException, IllegalArgumentException, InstantiationException, InvocationTargetException,
+            NoSuchMethodException, SecurityException, ClassNotFoundException {
+        Object builder = Class.forName("android.hardware.display.VirtualDisplayConfig$Builder")
+                .getConstructor(String.class, int.class, int.class, int.class)
+                .newInstance(name, width, height, density);
+        builder.getClass().getMethod("setFlags", int.class).invoke(builder, flags);
+        builder.getClass().getMethod("setSurface", Surface.class).invoke(builder, surface);
+        return builder.getClass().getMethod("build").invoke(builder);
+    }
+
+    class ContextWrapperWrapper extends ContextWrapper {
+        public ContextWrapperWrapper(Context base) {
+            super(base);
+        }
+
+        @Override
+        public String getPackageName() {
+            // `Workarounds.getContext().getPackageName()` always returns `android`,
+            // but `createVirtualDisplay` will validate the package name againest current
+            // uid.
+            // For ADB shell, the uid is 2000 (shell) and the only avaiable package name is
+            // `com.android.shell`
+            return "com.android.shell";
+        }
+    }
+
+    public Display createVirtualDisplay(Surface surface, int width, int height)
+            throws NoSuchMethodException, ClassNotFoundException, SecurityException, IllegalAccessException,
+            IllegalArgumentException, InstantiationException, InvocationTargetException, NoSuchFieldException {
+        Context context = Workarounds.getContext();
+        ContextWrapperWrapper wrapper = new ContextWrapperWrapper(context);
+        Ln.i("Package name: " + wrapper.getPackageName());
+
+        String name = "scrcpy-virtual";
+        int density = 200;
+        int flags = 0x01 | 0x08; // PUBLIC | CONTENT_ONLY
+
+        try {
+            // Android 10
+            Method createVirtualDisplay = manager.getClass().getMethod("createVirtualDisplay",
+                    Context.class,
+                    MediaProjection.class,
+                    String.class,
+                    int.class,
+                    int.class,
+                    int.class,
+                    Surface.class,
+                    int.class,
+                    Class.forName("android.hardware.display.VirtualDisplay$Callback"),
+                    Handler.class,
+                    String.class);
+            Object virtualDisplay = createVirtualDisplay.invoke(manager, wrapper, null, name, width, height, density,
+                    surface,
+                    flags, null, null, null);
+            Method getDisplay = Class.forName("android.hardware.display.VirtualDisplay").getMethod("getDisplay");
+            Display display = (Display) getDisplay.invoke(virtualDisplay);
+            return display;
+        } catch (NoSuchMethodException e) {
+        }
+
+        Object config = createVirtualDisplayConfig(
+                name,
+                width,
+                height,
+                density,
+                flags,
+                surface,
+                null,
+                0,
+                false);
+
+        try {
+            // Android 12
+            Method createVirtualDisplay = manager.getClass().getMethod("createVirtualDisplay",
+                    Context.class,
+                    MediaProjection.class,
+                    Class.forName("android.hardware.display.VirtualDisplayConfig"),
+                    Class.forName("android.hardware.display.VirtualDisplay$Callback"),
+                    Handler.class);
+            Object virtualDisplay = createVirtualDisplay.invoke(manager, wrapper, null, config, null, null);
+            Method getDisplay = Class.forName("android.hardware.display.VirtualDisplay").getMethod("getDisplay");
+            Display display = (Display) getDisplay.invoke(virtualDisplay);
+            return display;
+        } catch (NoSuchMethodException e) {
+        }
+
+        // Android 13
+        Method createVirtualDisplay = manager.getClass().getMethod("createVirtualDisplay",
+                Context.class,
+                MediaProjection.class,
+                Class.forName("android.hardware.display.VirtualDisplayConfig"),
+                Class.forName("android.hardware.display.VirtualDisplay$Callback"),
+                Executor.class,
+                Context.class);
+        Object virtualDisplay = createVirtualDisplay.invoke(manager, wrapper, null, config, null, null, wrapper);
+        Method getDisplay = Class.forName("android.hardware.display.VirtualDisplay").getMethod("getDisplay");
+        Display display = (Display) getDisplay.invoke(virtualDisplay);
+        return display;
     }
 }

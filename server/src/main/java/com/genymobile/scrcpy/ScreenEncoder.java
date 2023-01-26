@@ -2,6 +2,7 @@ package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 
+import android.Manifest.permission;
 import android.graphics.Rect;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -41,6 +42,7 @@ public class ScreenEncoder implements Device.RotationListener {
     private final boolean sendFrameMeta;
     private final boolean downsizeOnError;
     private long ptsOrigin;
+    private MediaCodec codec;
 
     private boolean firstFrameSent;
 
@@ -63,70 +65,39 @@ public class ScreenEncoder implements Device.RotationListener {
         return rotationChanged.getAndSet(false);
     }
 
-    public void streamScreen(Device device, FileDescriptor fd) throws IOException {
-        Workarounds.prepareMainLooper();
+    public Surface createInputSurface(int width, int height) throws IOException {
         if (Build.BRAND.equalsIgnoreCase("meizu")) {
             // <https://github.com/Genymobile/scrcpy/issues/240>
             // <https://github.com/Genymobile/scrcpy/issues/2656>
             Workarounds.fillAppInfo();
         }
 
-        internalStreamScreen(device, fd);
+        return internalCreateInputSurface(width, height);
     }
 
-    private void internalStreamScreen(Device device, FileDescriptor fd) throws IOException {
+    private Surface internalCreateInputSurface(int width, int height) throws IOException {
         MediaFormat format = createFormat(bitRate, maxFps, codecOptions);
+        codec = createCodec(encoderName);
+        setSize(format, width, height);
+        configure(codec, format);
+        return codec.createInputSurface();
+    }
+
+    public void streamScreen(Device device, FileDescriptor fd) throws IOException {
         device.setRotationListener(this);
-        boolean alive;
         try {
-            do {
-                MediaCodec codec = createCodec(encoderName);
-                IBinder display = createDisplay();
-                ScreenInfo screenInfo = device.getScreenInfo();
-                Rect contentRect = screenInfo.getContentRect();
-                // include the locked video orientation
-                Rect videoRect = screenInfo.getVideoSize().toRect();
-                // does not include the locked video orientation
-                Rect unlockedVideoRect = screenInfo.getUnlockedVideoSize().toRect();
-                int videoRotation = screenInfo.getVideoRotation();
-                int layerStack = device.getLayerStack();
-                setSize(format, videoRect.width(), videoRect.height());
-
-                Surface surface = null;
-                try {
-                    configure(codec, format);
-                    surface = codec.createInputSurface();
-                    setDisplaySurface(display, surface, videoRotation, contentRect, unlockedVideoRect, layerStack);
-                    codec.start();
-
-                    alive = encode(codec, fd);
-                    // do not call stop() on exception, it would trigger an IllegalStateException
-                    codec.stop();
-                } catch (IllegalStateException | IllegalArgumentException e) {
-                    Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
-                    if (!downsizeOnError || firstFrameSent) {
-                        // Fail immediately
-                        throw e;
-                    }
-
-                    int newMaxSize = chooseMaxSizeFallback(screenInfo.getVideoSize());
-                    if (newMaxSize == 0) {
-                        // Definitively fail
-                        throw e;
-                    }
-
-                    // Retry with a smaller device size
-                    Ln.i("Retrying with -m" + newMaxSize + "...");
-                    device.setMaxSize(newMaxSize);
-                    alive = true;
-                } finally {
-                    destroyDisplay(display);
-                    codec.release();
-                    if (surface != null) {
-                        surface.release();
-                    }
-                }
-            } while (alive);
+            try {
+                codec.start();
+                encode(codec, fd);
+                // do not call stop() on exception, it would trigger an IllegalStateException
+                codec.stop();
+            } catch (IllegalStateException | IllegalArgumentException e) {
+                Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
+                // Fail immediately
+                throw e;
+            } finally {
+                codec.release();
+            }
         } finally {
             device.setRotationListener(null);
         }

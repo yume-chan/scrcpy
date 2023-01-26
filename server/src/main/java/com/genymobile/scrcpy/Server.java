@@ -4,10 +4,14 @@ import android.graphics.Rect;
 import android.media.MediaCodecInfo;
 import android.os.BatteryManager;
 import android.os.Build;
+import android.view.Display;
+import android.view.Surface;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
+
+import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 public final class Server {
 
@@ -61,7 +65,7 @@ public final class Server {
 
     private static void scrcpy(Options options) throws IOException {
         Ln.i("Device: " + Build.MANUFACTURER + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")");
-        final Device device = new Device(options);
+        Device device = new Device(options);
         List<CodecOption> codecOptions = options.getCodecOptions();
 
         Thread initThread = startInitThread(options);
@@ -77,6 +81,18 @@ public final class Server {
             }
             ScreenEncoder screenEncoder = new ScreenEncoder(options.getSendFrameMeta(), options.getBitRate(), options.getMaxFps(), codecOptions,
                     options.getEncoderName(), options.getDownsizeOnError());
+
+            try {
+                Workarounds.prepareMainLooper();
+                Surface surface = screenEncoder.createInputSurface(1920, 1080);
+                Display virtualDisplay = ServiceManager.getDisplayManager().createVirtualDisplay(surface,
+                        1920, 1080);
+                options.setDisplayId(virtualDisplay.getDisplayId());
+                Ln.i("Virtual Display ID: " + virtualDisplay.getDisplayId());
+                device = new Device(options);
+            } catch (Throwable e) {
+                Ln.e("Can't create virtual display", e);
+            }
 
             Thread controllerThread = null;
             Thread deviceMessageSenderThread = null;
