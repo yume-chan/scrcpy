@@ -4,7 +4,6 @@ import com.genymobile.scrcpy.Command;
 import com.genymobile.scrcpy.DisplayInfo;
 import com.genymobile.scrcpy.Ln;
 import com.genymobile.scrcpy.Size;
-import com.genymobile.scrcpy.Workarounds;
 
 import android.view.Display;
 import android.view.Surface;
@@ -118,9 +117,9 @@ public final class DisplayManager {
         return builder.getClass().getMethod("build").invoke(builder);
     }
 
-    class ContextWrapperWrapper extends ContextWrapper {
-        public ContextWrapperWrapper(Context base) {
-            super(base);
+    class FakePackageNameContext extends ContextWrapper {
+        public FakePackageNameContext() {
+            super(null);
         }
 
         @Override
@@ -137,8 +136,7 @@ public final class DisplayManager {
     public Display createVirtualDisplay(Surface surface, int width, int height)
             throws NoSuchMethodException, ClassNotFoundException, SecurityException, IllegalAccessException,
             IllegalArgumentException, InstantiationException, InvocationTargetException, NoSuchFieldException {
-        Context context = Workarounds.getContext();
-        ContextWrapperWrapper wrapper = new ContextWrapperWrapper(context);
+        FakePackageNameContext wrapper = new FakePackageNameContext();
         Ln.i("Package name: " + wrapper.getPackageName());
 
         String name = "scrcpy-virtual";
