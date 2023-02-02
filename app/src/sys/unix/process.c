@@ -222,6 +222,11 @@ sc_process_close(pid_t pid) {
 }
 
 ssize_t
+sc_pipe_write(int pipe, char *data, size_t len) {
+    return write(pipe, data, len);
+}
+
+ssize_t
 sc_pipe_read(int pipe, char *data, size_t len) {
     return read(pipe, data, len);
 }

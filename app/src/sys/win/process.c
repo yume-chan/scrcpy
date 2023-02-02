@@ -30,7 +30,7 @@ sc_process_execute_p(const char *const argv[], HANDLE *handle, unsigned flags,
     bool inherit_stderr = !perr && !(flags & SC_PROCESS_NO_STDERR);
 
     // Add 1 per non-NULL pointer
-    unsigned handle_count = !!pin || !!pout || !!perr;
+    unsigned has_user_pipe = !!pin || !!pout || !!perr;
 
     enum sc_process_result ret = SC_PROCESS_ERROR_GENERIC;
 
@@ -78,31 +78,33 @@ sc_process_execute_p(const char *const argv[], HANDLE *handle, unsigned flags,
     memset(&si, 0, sizeof(si));
     si.StartupInfo.cb = sizeof(si);
     HANDLE handles[3];
+    unsigned handle_count = 0;
 
     si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
     if (inherit_stdout) {
         si.StartupInfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+        handles[handle_count++] = si.StartupInfo.hStdOutput;
     }
     if (inherit_stderr) {
         si.StartupInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+        handles[handle_count++] = si.StartupInfo.hStdError;
     }
 
     LPPROC_THREAD_ATTRIBUTE_LIST lpAttributeList = NULL;
-    if (handle_count) {
-        unsigned i = 0;
+    if (has_user_pipe) {
         if (pin) {
             si.StartupInfo.hStdInput = stdin_read_handle;
-            handles[i++] = si.StartupInfo.hStdInput;
+            handles[handle_count++] = si.StartupInfo.hStdInput;
         }
         if (pout) {
             assert(!inherit_stdout);
             si.StartupInfo.hStdOutput = stdout_write_handle;
-            handles[i++] = si.StartupInfo.hStdOutput;
+            handles[handle_count++] = si.StartupInfo.hStdOutput;
         }
         if (perr) {
             assert(!inherit_stderr);
             si.StartupInfo.hStdError = stderr_write_handle;
-            handles[i++] = si.StartupInfo.hStdError;
+            handles[handle_count++] = si.StartupInfo.hStdError;
         }
 
         SIZE_T size;
@@ -239,6 +241,15 @@ sc_process_close(HANDLE handle) {
     bool closed = CloseHandle(handle);
     assert(closed);
     (void) closed;
+}
+
+ssize_t
+sc_pipe_write(HANDLE pipe, char *data, size_t len) {
+    DWORD r;
+    if (!WriteFile(pipe, data, len, &r, NULL)) {
+        return -1;
+    }
+    return r;
 }
 
 ssize_t

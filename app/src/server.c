@@ -163,7 +163,7 @@ execute_server(struct sc_server *server,
     const char *serial = server->serial;
     assert(serial);
 
-    const char *cmd[128];
+    const char *cmd[16];
     unsigned count = 0;
     cmd[count++] = sc_adb_get_executable();
     cmd[count++] = "-s";
@@ -187,79 +187,6 @@ execute_server(struct sc_server *server,
 #endif
     cmd[count++] = "/"; // unused
     cmd[count++] = "com.genymobile.scrcpy.Server";
-    cmd[count++] = SCRCPY_VERSION;
-
-    unsigned dyn_idx = count; // from there, the strings are allocated
-#define ADD_PARAM(fmt, ...) { \
-        char *p = (char *) &cmd[count]; \
-        if (asprintf(&p, fmt, ## __VA_ARGS__) == -1) { \
-            goto end; \
-        } \
-        cmd[count++] = p; \
-    }
-
-    ADD_PARAM("uid=%08x", params->uid);
-    ADD_PARAM("log_level=%s", log_level_to_server_string(params->log_level));
-    ADD_PARAM("bit_rate=%" PRIu32, params->bit_rate);
-
-    if (params->max_size) {
-        ADD_PARAM("max_size=%" PRIu16, params->max_size);
-    }
-    if (params->max_fps) {
-        ADD_PARAM("max_fps=%" PRIu16, params->max_fps);
-    }
-    if (params->lock_video_orientation != SC_LOCK_VIDEO_ORIENTATION_UNLOCKED) {
-        ADD_PARAM("lock_video_orientation=%" PRIi8,
-                  params->lock_video_orientation);
-    }
-    if (server->tunnel.forward) {
-        ADD_PARAM("tunnel_forward=true");
-    }
-    if (params->crop) {
-        ADD_PARAM("crop=%s", params->crop);
-    }
-    if (!params->control) {
-        // By default, control is true
-        ADD_PARAM("control=false");
-    }
-    if (params->display_id) {
-        ADD_PARAM("display_id=%" PRIu32, params->display_id);
-    }
-    if (params->show_touches) {
-        ADD_PARAM("show_touches=true");
-    }
-    if (params->stay_awake) {
-        ADD_PARAM("stay_awake=true");
-    }
-    if (params->codec_options) {
-        ADD_PARAM("codec_options=%s", params->codec_options);
-    }
-    if (params->encoder_name) {
-        ADD_PARAM("encoder_name=%s", params->encoder_name);
-    }
-    if (params->power_off_on_close) {
-        ADD_PARAM("power_off_on_close=true");
-    }
-    if (!params->clipboard_autosync) {
-        // By default, clipboard_autosync is true
-        ADD_PARAM("clipboard_autosync=false");
-    }
-    if (!params->downsize_on_error) {
-        // By default, downsize_on_error is true
-        ADD_PARAM("downsize_on_error=false");
-    }
-    if (!params->cleanup) {
-        // By default, cleanup is true
-        ADD_PARAM("cleanup=false");
-    }
-    if (!params->power_on) {
-        // By default, power_on is true
-        ADD_PARAM("power_on=false");
-    }
-
-#undef ADD_PARAM
-
-    cmd[count++] = NULL;
 
 #ifdef SERVER_DEBUGGER
     LOGI("Server debugger waiting for a client on device port "
@@ -273,13 +200,93 @@ execute_server(struct sc_server *server,
     // Then click on "Debug"
 #endif
     // Inherit both stdout and stderr (all server logs are printed to stdout)
-    pid = sc_adb_execute(cmd, 0);
+    sc_pipe pin;
+    pid = sc_adb_execute_p(cmd, 0, &pin, NULL);
 
-end:
-    for (unsigned i = dyn_idx; i < count; ++i) {
-        free((char *) cmd[i]);
+#define WRITE_LINE(fmt, ...) { \
+        char *p; \
+        int r = asprintf(&p, fmt "\n", ## __VA_ARGS__); \
+        if (r == -1) { \
+            goto end; \
+        } \
+        r = sc_pipe_write(pin, p, r); \
+        if (r == -1) { \
+            goto end; \
+        } \
+        free(p); \
     }
 
+#define WRITE_OPTION(fmt, ...) { \
+    WRITE_LINE("option:" fmt, ## __VA_ARGS__) \
+}
+
+    WRITE_LINE("version:%s", SCRCPY_VERSION);
+
+    WRITE_OPTION("uid=%08x", params->uid);
+    WRITE_OPTION("log_level=%s", log_level_to_server_string(params->log_level));
+    WRITE_OPTION("bit_rate=%" PRIu32, params->bit_rate);
+
+    if (params->max_size) {
+        WRITE_OPTION("max_size=%" PRIu16, params->max_size);
+    }
+    if (params->max_fps) {
+        WRITE_OPTION("max_fps=%" PRIu16, params->max_fps);
+    }
+    if (params->lock_video_orientation != SC_LOCK_VIDEO_ORIENTATION_UNLOCKED) {
+        WRITE_OPTION("lock_video_orientation=%" PRIi8,
+                  params->lock_video_orientation);
+    }
+    if (server->tunnel.forward) {
+        WRITE_OPTION("tunnel_forward=true");
+    }
+    if (params->crop) {
+        WRITE_OPTION("crop=%s", params->crop);
+    }
+    if (!params->control) {
+        // By default, control is true
+        WRITE_OPTION("control=false");
+    }
+    if (params->display_id) {
+        WRITE_OPTION("display_id=%" PRIu32, params->display_id);
+    }
+    if (params->show_touches) {
+        WRITE_OPTION("show_touches=true");
+    }
+    if (params->stay_awake) {
+        WRITE_OPTION("stay_awake=true");
+    }
+    if (params->codec_options) {
+        WRITE_OPTION("codec_options=%s", params->codec_options);
+    }
+    if (params->encoder_name) {
+        WRITE_OPTION("encoder_name=%s", params->encoder_name);
+    }
+    if (params->power_off_on_close) {
+        WRITE_OPTION("power_off_on_close=true");
+    }
+    if (!params->clipboard_autosync) {
+        // By default, clipboard_autosync is true
+        WRITE_OPTION("clipboard_autosync=false");
+    }
+    if (!params->downsize_on_error) {
+        // By default, downsize_on_error is true
+        WRITE_OPTION("downsize_on_error=false");
+    }
+    if (!params->cleanup) {
+        // By default, cleanup is true
+        WRITE_OPTION("cleanup=false");
+    }
+    if (!params->power_on) {
+        // By default, power_on is true
+        WRITE_OPTION("power_on=false");
+    }
+
+    WRITE_LINE("start");
+
+#undef WRITE_LINE
+#undef WRITE_OPTION
+
+end:
     return pid;
 }
 

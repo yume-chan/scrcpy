@@ -5,7 +5,10 @@ import android.media.MediaCodecInfo;
 import android.os.BatteryManager;
 import android.os.Build;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -141,21 +144,10 @@ public final class Server {
         return thread;
     }
 
-    private static Options createOptions(String... args) {
-        if (args.length < 1) {
-            throw new IllegalArgumentException("Missing client version");
-        }
-
-        String clientVersion = args[0];
-        if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
-            throw new IllegalArgumentException(
-                    "The server version (" + BuildConfig.VERSION_NAME + ") does not match the client " + "(" + clientVersion + ")");
-        }
-
+    private static Options createOptions(List<String> args) {
         Options options = new Options();
 
-        for (int i = 1; i < args.length; ++i) {
-            String arg = args[i];
+        for (String arg : args) {
             int equalIndex = arg.indexOf('=');
             if (equalIndex == -1) {
                 throw new IllegalArgumentException("Invalid key=value pair: \"" + arg + "\"");
@@ -310,16 +302,48 @@ public final class Server {
         }
     }
 
-    public static void main(String... args) throws Exception {
+    public static void main(String... _args) throws Exception {
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             Ln.e("Exception on thread " + t, e);
             suggestFix(e);
         });
 
-        Options options = createOptions(args);
+        List<String> args = new ArrayList<>();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
 
-        Ln.initLogLevel(options.getLogLevel());
+        try {
+            String line = reader.readLine();
+            if (line == null || !line.startsWith("version:")) {
+                throw new IllegalArgumentException("Missing client version");
+            }
 
-        scrcpy(options);
+            String clientVersion = line.substring("version:".length());
+            if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
+                throw new IllegalArgumentException(
+                        "The server version (" + BuildConfig.VERSION_NAME + ") does not match the client " + "("
+                                + clientVersion + ")");
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Missing client version");
+        }
+
+        while (true) {
+            String line = reader.readLine();
+            if (line == null) {
+                throw new IllegalArgumentException("Exited before start command");
+            }
+
+            if (line.startsWith("option:")) {
+                args.add(line.substring("option:".length()));
+                continue;
+            }
+
+            if (line.equals("start")) {
+                Options options = createOptions(args);
+                Ln.initLogLevel(options.getLogLevel());
+                scrcpy(options);
+                return;
+            }
+        }
     }
 }

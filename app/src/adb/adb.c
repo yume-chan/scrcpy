@@ -169,8 +169,8 @@ process_check_success_intr(struct sc_intr *intr, sc_pid pid, const char *name,
     return ret;
 }
 
-static sc_pid
-sc_adb_execute_p(const char *const argv[], unsigned flags, sc_pipe *pout) {
+sc_pid
+sc_adb_execute_p(const char *const argv[], unsigned flags, sc_pipe *pin, sc_pipe *pout) {
     unsigned process_flags = 0;
     if (flags & SC_ADB_NO_STDOUT) {
         process_flags |= SC_PROCESS_NO_STDOUT;
@@ -181,7 +181,7 @@ sc_adb_execute_p(const char *const argv[], unsigned flags, sc_pipe *pout) {
 
     sc_pid pid;
     enum sc_process_result r =
-        sc_process_execute_p(argv, &pid, process_flags, NULL, pout, NULL);
+        sc_process_execute_p(argv, &pid, process_flags, pin, pout, NULL);
     if (r != SC_PROCESS_SUCCESS) {
         // If the execution itself failed (not the command exit code), log the
         // error in all cases
@@ -194,7 +194,7 @@ sc_adb_execute_p(const char *const argv[], unsigned flags, sc_pipe *pout) {
 
 sc_pid
 sc_adb_execute(const char *const argv[], unsigned flags) {
-    return sc_adb_execute_p(argv, flags, NULL);
+    return sc_adb_execute_p(argv, flags, NULL, NULL);
 }
 
 bool
@@ -348,7 +348,7 @@ sc_adb_connect(struct sc_intr *intr, const char *ip_port, unsigned flags) {
     const char *const argv[] = SC_ADB_COMMAND("connect", ip_port);
 
     sc_pipe pout;
-    sc_pid pid = sc_adb_execute_p(argv, flags, &pout);
+    sc_pid pid = sc_adb_execute_p(argv, flags, NULL, &pout);
     if (pid == SC_PROCESS_NONE) {
         LOGE("Could not execute \"adb connect\"");
         return false;
@@ -406,7 +406,7 @@ sc_adb_list_devices(struct sc_intr *intr, unsigned flags,
     }
 
     sc_pipe pout;
-    sc_pid pid = sc_adb_execute_p(argv, flags, &pout);
+    sc_pid pid = sc_adb_execute_p(argv, flags, NULL, &pout);
     if (pid == SC_PROCESS_NONE) {
         LOGE("Could not execute \"adb devices -l\"");
         free(buf);
@@ -645,7 +645,7 @@ sc_adb_getprop(struct sc_intr *intr, const char *serial, const char *prop,
         SC_ADB_COMMAND("-s", serial, "shell", "getprop", prop);
 
     sc_pipe pout;
-    sc_pid pid = sc_adb_execute_p(argv, flags, &pout);
+    sc_pid pid = sc_adb_execute_p(argv, flags, NULL, &pout);
     if (pid == SC_PROCESS_NONE) {
         LOGE("Could not execute \"adb getprop\"");
         return NULL;
@@ -679,7 +679,7 @@ sc_adb_get_device_ip(struct sc_intr *intr, const char *serial, unsigned flags) {
         SC_ADB_COMMAND("-s", serial, "shell", "ip", "route");
 
     sc_pipe pout;
-    sc_pid pid = sc_adb_execute_p(argv, flags, &pout);
+    sc_pid pid = sc_adb_execute_p(argv, flags, NULL, &pout);
     if (pid == SC_PROCESS_NONE) {
         LOGD("Could not execute \"ip route\"");
         return NULL;

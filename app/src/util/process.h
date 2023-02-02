@@ -117,6 +117,14 @@ void
 sc_process_close(sc_pid pid);
 
 /**
+ * Write to the pipe
+ *
+ * Same semantic as write().
+ */
+ssize_t
+sc_pipe_write(sc_pipe pipe, char *data, size_t len);
+
+/**
  * Read from the pipe
  *
  * Same semantic as read().

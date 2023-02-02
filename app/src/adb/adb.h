@@ -31,6 +31,9 @@ struct sc_adb_device_selector {
 };
 
 sc_pid
+sc_adb_execute_p(const char *const argv[], unsigned flags, sc_pipe *pin, sc_pipe *pout);
+
+sc_pid
 sc_adb_execute(const char *const argv[], unsigned flags);
 
 bool
