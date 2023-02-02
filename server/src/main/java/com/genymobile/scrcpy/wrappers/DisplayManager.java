@@ -131,6 +131,11 @@ public final class DisplayManager {
             // `com.android.shell`
             return "com.android.shell";
         }
+
+        @Override
+        public Display getDisplay() {
+            return null;
+        }
     }
 
     public Display createVirtualDisplay(Surface surface, int width, int height)
@@ -141,7 +146,21 @@ public final class DisplayManager {
 
         String name = "scrcpy-virtual";
         int density = 200;
-        int flags = 0x01 | 0x08; // PUBLIC | CONTENT_ONLY
+        int VIRTUAL_DISPLAY_FLAG_PUBLIC = 1 << 0;
+        int VIRTUAL_DISPLAY_FLAG_PRESENTATION = 1 << 1;
+        int VIRTUAL_DISPLAY_FLAG_SECURE = 1 << 2;
+        int VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY = 1 << 3;
+        int VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR = 1 << 4;
+        int VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD = 1 << 5;
+        int VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH = 1 << 6;
+        int VIRTUAL_DISPLAY_FLAG_ROTATES_WITH_CONTENT = 1 << 7;
+        int VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8;
+        int VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 9;
+        int VIRTUAL_DISPLAY_FLAG_TRUSTED = 1 << 10;
+        int flags = VIRTUAL_DISPLAY_FLAG_PRESENTATION
+                | VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD
+                | VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH
+                | VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS;
 
         try {
             // Android 10

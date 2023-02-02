@@ -4,6 +4,7 @@ import android.graphics.Rect;
 import android.media.MediaCodecInfo;
 import android.os.BatteryManager;
 import android.os.Build;
+import android.system.Os;
 import android.view.Display;
 import android.view.Surface;
 
@@ -84,9 +85,11 @@ public final class Server {
 
             try {
                 Workarounds.prepareMainLooper();
-                Surface surface = screenEncoder.createInputSurface(1920, 1080);
+                int width = 1920;
+                int height = 1080;
+                Surface surface = screenEncoder.createInputSurface(height, width);
                 Display virtualDisplay = ServiceManager.getDisplayManager().createVirtualDisplay(surface,
-                        1920, 1080);
+                        height, width);
                 options.setDisplayId(virtualDisplay.getDisplayId());
                 Ln.i("Virtual Display ID: " + virtualDisplay.getDisplayId());
                 device = new Device(options);
@@ -334,6 +337,15 @@ public final class Server {
         }
     }
 
+    @SuppressWarnings("deprecation")
+    private static void dropRoot() {
+        try {
+            Os.setuid(2000);
+        } catch (Throwable e) {
+            // Ignore
+        }
+    }
+
     public static void main(String... args) throws Exception {
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
@@ -342,6 +354,8 @@ public final class Server {
                 suggestFix(e);
             }
         });
+
+        dropRoot();
 
         Options options = createOptions(args);
 
