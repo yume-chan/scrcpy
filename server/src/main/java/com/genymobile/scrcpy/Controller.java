@@ -45,6 +45,8 @@ public class Controller {
     private SparseArray<GameController> gameControllers = new SparseArray<GameController>();
     private boolean gameControllersEnabled;
 
+    private UinputKeyboard keyboard;
+
     public Controller(Device device, DesktopConnection connection, boolean clipboardAutosync, boolean powerOn) {
         this.device = device;
         this.connection = connection;
@@ -60,6 +62,8 @@ public class Controller {
             Ln.e("Could not load native libraries. Game controllers will be disabled.", e);
             gameControllersEnabled = false;
         }
+
+        keyboard = new UinputKeyboard();
     }
 
     private void initPointers() {
@@ -252,31 +256,9 @@ public class Controller {
         return device.injectKeyEvent(action, keycode, repeat, metaState, Device.INJECT_MODE_ASYNC);
     }
 
-    private boolean injectChar(char c) {
-        String decomposed = KeyComposition.decompose(c);
-        char[] chars = decomposed != null ? decomposed.toCharArray() : new char[]{c};
-        KeyEvent[] events = charMap.getEvents(chars);
-        if (events == null) {
-            return false;
-        }
-        for (KeyEvent event : events) {
-            if (!device.injectEvent(event, Device.INJECT_MODE_ASYNC)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     private int injectText(String text) {
-        int successCount = 0;
-        for (char c : text.toCharArray()) {
-            if (!injectChar(c)) {
-                Ln.w("Could not inject char u+" + String.format("%04x", (int) c));
-                continue;
-            }
-            successCount++;
-        }
-        return successCount;
+        keyboard.type(text);
+        return text.length();
     }
 
     private boolean injectTouch(int action, long pointerId, Position position, float pressure, int actionButton, int buttons) {
