@@ -592,6 +592,15 @@ sc_screen_show_initial_window(struct sc_screen *screen) {
     }
 
     SDL_ShowWindow(screen->window);
+
+    SDL_Rect rect = {
+        .x = 0,
+        .y = 0,
+        .w = 100,
+        .h = 100,
+    };
+    SDL_SetTextInputRect(&rect);
+    SDL_StartTextInput();
 }
 
 void

@@ -279,6 +279,8 @@ scrcpy(struct scrcpy_options *options) {
     static struct scrcpy scrcpy;
     struct scrcpy *s = &scrcpy;
 
+    SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
+
     // Minimal SDL initialization
     if (SDL_Init(SDL_INIT_EVENTS)) {
         LOGE("Could not initialize SDL: %s", SDL_GetError());
