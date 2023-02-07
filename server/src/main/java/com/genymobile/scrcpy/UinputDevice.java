@@ -152,6 +152,8 @@ public abstract class UinputDevice {
     private static final int UI_SET_EVBIT = iow(UINPUT_IOCTL_BASE, 100, 4);
     private static final int UI_SET_KEYBIT = iow(UINPUT_IOCTL_BASE, 101, 4);
     private static final int UI_SET_ABSBIT = iow(UINPUT_IOCTL_BASE, 103, 4);
+    private static final int UI_SET_MSCBIT = iow(UINPUT_IOCTL_BASE, 104, 4);
+    private static final int UI_SET_LEDBIT = iow(UINPUT_IOCTL_BASE, 105, 4);
     private static final int UI_ABS_SETUP = iow(UINPUT_IOCTL_BASE, 4, new UinputAbsSetup().size());  // 0.5+
 
     private static final int UI_DEV_SETUP = iow(UINPUT_IOCTL_BASE, 3, new UinputSetup().size());  // 0.5+
@@ -161,6 +163,8 @@ public abstract class UinputDevice {
     private static final short EV_SYN = 0x00;
     private static final short EV_KEY = 0x01;
     private static final short EV_ABS = 0x03;
+    private static final short EV_MSC = 0x04;
+    private static final short EV_LED = 0x11;
 
     private static final short SYN_REPORT = 0x00;
 
@@ -190,14 +194,14 @@ public abstract class UinputDevice {
     private int[] absmin;
     private int[] absfuzz;
     private int[] absflat;
-    
+
     public interface LibC extends Library {
         int open(String pathname, int flags) throws LastErrorException;
         int ioctl(int fd, long request, Object... args) throws LastErrorException;
         long write(int fd, Pointer buf, long count) throws LastErrorException;
         int close(int fd) throws LastErrorException;
     }
-    
+
     private static LibC libC;
     private static int version = 0;
 
@@ -253,6 +257,24 @@ public abstract class UinputDevice {
             }
 
             setupAbs();
+        }
+
+        if (hasMsc()) {
+            try {
+                libC.ioctl(fd, UI_SET_EVBIT, EV_MSC);
+            } catch (LastErrorException e) {
+                throw new RuntimeException("Could not enable msc events.", e);
+            }
+            setupMsc();
+        }
+
+        if (hasLed()) {
+            try {
+                libC.ioctl(fd, UI_SET_EVBIT, EV_LED);
+            } catch (LastErrorException e) {
+                throw new RuntimeException("Could not enable led events.", e);
+            }
+            setupLed();
         }
 
         if (version >= 5) {
@@ -320,6 +342,10 @@ public abstract class UinputDevice {
     protected abstract boolean hasKeys();
     protected abstract void setupAbs();
     protected abstract boolean hasAbs();
+    protected abstract void setupMsc();
+    protected abstract boolean hasMsc();
+    protected abstract void setupLed();
+    protected abstract boolean hasLed();
     protected abstract short getVendor();
     protected abstract short getProduct();
     protected abstract String getName();
@@ -329,6 +355,22 @@ public abstract class UinputDevice {
             libC.ioctl(fd, UI_SET_KEYBIT, key);
         } catch (LastErrorException e) {
             Ln.e("Could not add key event.", e);
+        }
+    }
+
+    protected void addMsc(int key) {
+        try {
+            libC.ioctl(fd, UI_SET_MSCBIT, key);
+        } catch (LastErrorException e) {
+            Ln.e("Could not add msc event.", e);
+        }
+    }
+
+    protected void addLed(int key) {
+        try {
+            libC.ioctl(fd, UI_SET_LEDBIT, key);
+        } catch (LastErrorException e) {
+            Ln.e("Could not add led event.", e);
         }
     }
 

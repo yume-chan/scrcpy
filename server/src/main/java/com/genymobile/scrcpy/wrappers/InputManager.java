@@ -2,6 +2,7 @@ package com.genymobile.scrcpy.wrappers;
 
 import com.genymobile.scrcpy.Ln;
 
+import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.MotionEvent;
 
@@ -75,5 +76,13 @@ public final class InputManager {
             Ln.e("Cannot set action button on MotionEvent", e);
             return false;
         }
+    }
+
+    public int[] getDeviceIds(){
+        return manager.getInputDeviceIds();
+    }
+
+    public InputDevice getInputDevice(int id){
+        return manager.getInputDevice(id);
     }
 }

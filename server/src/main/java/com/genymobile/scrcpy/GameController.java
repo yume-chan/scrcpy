@@ -191,4 +191,22 @@ public final class GameController extends UinputDevice {
         }
         emitReport();
     }
+
+    @Override
+    protected void setupMsc() {
+    }
+
+    @Override
+    protected boolean hasMsc() {
+        return false;
+    }
+
+    @Override
+    protected void setupLed() {
+    }
+
+    @Override
+    protected boolean hasLed() {
+        return false;
+    }
 }

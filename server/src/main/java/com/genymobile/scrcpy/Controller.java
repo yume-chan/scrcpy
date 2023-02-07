@@ -1,6 +1,7 @@
 package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.wrappers.InputManager;
+import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 import android.os.Build;
 import android.os.SystemClock;
@@ -63,6 +64,9 @@ public class Controller {
             gameControllersEnabled = false;
         }
 
+        // The first keyboard will be rejected due to device is not being zero
+        new UinputKeyboard();
+        // The second one will be classified as physical keyboard
         keyboard = new UinputKeyboard();
     }
 

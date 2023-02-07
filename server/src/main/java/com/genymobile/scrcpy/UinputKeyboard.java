@@ -31,11 +31,12 @@ public class UinputKeyboard extends UinputDevice {
 
     @Override
     protected void setupKeys() {
-        addKey(KEY_LEFTSHIFT);
-        addKey(KEY_LEFTALT);
-        addKey(KEY_X);
-        for (short key : HEX_KEYS) {
-            addKey(key);
+        for (short i = 1; i < 584; i++) {
+            // Don't add BTN_TOUCH
+            // Otherwise will be classified as stylus
+            if (i != 330) {
+                addKey(i);
+            }
         }
     }
 
@@ -56,16 +57,20 @@ public class UinputKeyboard extends UinputDevice {
 
     @Override
     protected short getVendor() {
-        return 0x0627;
+        // Doesn't matter
+        return 0x0123;
     }
 
     @Override
     protected short getProduct() {
-        return 0x0001;
+        // Doesn't matter
+        return 0x4567;
     }
 
     @Override
     protected String getName() {
+        // Must be qwerty or qwerty2
+        // only these key character map has hex input feature
         return "qwerty";
     }
 
@@ -92,5 +97,33 @@ public class UinputKeyboard extends UinputDevice {
             emitKey(KEY_X, 0);
             emitReport();
         }
+    }
+
+    @Override
+    protected void setupMsc() {
+        // Emulating my keyboard
+        // No idea what this does
+        // Shouldn't matter
+        addMsc(4);
+    }
+
+    @Override
+    protected boolean hasMsc() {
+        return true;
+    }
+
+    @Override
+    protected void setupLed() {
+        // Shouldn't matter
+        addLed(0);
+        addLed(1);
+        addLed(2);
+        addLed(3);
+        addLed(4);
+    }
+
+    @Override
+    protected boolean hasLed() {
+        return true;
     }
 }
