@@ -20,6 +20,9 @@ android {
 }
 
 dependencies {
+    // https://mvnrepository.com/artifact/org.jooq/joor
+    implementation 'org.jooq:joor:0.9.14'
+
     testImplementation 'junit:junit:4.13.2'
 }
 

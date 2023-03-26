@@ -4,16 +4,23 @@ import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
+import android.content.AttributionSource;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.AudioTimestamp;
 import android.media.MediaCodec;
 import android.media.MediaRecorder;
 import android.os.Build;
+import android.os.Looper;
 import android.os.SystemClock;
 
+import org.joor.Reflect;
+
+import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 
 public final class AudioCapture {
@@ -34,28 +41,65 @@ public final class AudioCapture {
         return SAMPLE_RATE * CHANNELS * BYTES_PER_SAMPLE * millis / 1000;
     }
 
-    private static AudioFormat createAudioFormat() {
-        AudioFormat.Builder builder = new AudioFormat.Builder();
-        builder.setEncoding(FORMAT);
-        builder.setSampleRate(SAMPLE_RATE);
-        builder.setChannelMask(CHANNEL_CONFIG);
-        return builder.build();
-    }
-
     @TargetApi(Build.VERSION_CODES.M)
-    @SuppressLint({"WrongConstant", "MissingPermission"})
+    @SuppressLint({ "WrongConstant", "MissingPermission" })
     private static AudioRecord createAudioRecord() {
-        AudioRecord.Builder builder = new AudioRecord.Builder();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // On older APIs, Workarounds.fillAppInfo() must be called beforehand
-            builder.setContext(FakeContext.get());
+        try {
+            Reflect audioRecord = Reflect.onClass(AudioRecord.class).create(0L);
+
+            audioRecord.set("mRecordingState", AudioRecord.RECORDSTATE_STOPPED);
+
+            Looper looper = Looper.myLooper();
+            if (looper == null) {
+                looper = Looper.getMainLooper();
+            }
+            audioRecord.set("mInitializationLooper", looper);
+
+            audioRecord.set("mIsSubmixFullVolume", true);
+
+            AudioAttributes.Builder audioAttributesBuilder = new AudioAttributes.Builder();
+            Reflect.on(audioAttributesBuilder).call("setInternalCapturePreset",
+                    MediaRecorder.AudioSource.REMOTE_SUBMIX);
+            AudioAttributes audioAttributes = audioAttributesBuilder.build();
+            audioRecord.set("mAudioAttributes", audioAttributes);
+
+            audioRecord.call("audioParamCheck", MediaRecorder.AudioSource.REMOTE_SUBMIX, SAMPLE_RATE, FORMAT);
+
+            audioRecord.set("mChannelMask", CHANNEL_CONFIG);
+            audioRecord.set("mChannelCount", CHANNELS);
+
+            int minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, FORMAT);
+            // This buffer size does not impact latency
+            audioRecord.call("audioBuffSizeCheck", 8 * minBufferSize);
+
+            int[] sampleRate = new int[] { 0 };
+            int[] session = new int[] { AudioManager.AUDIO_SESSION_ID_GENERATE };
+
+            AttributionSource attributionSource = FakeContext.get().getAttributionSource();
+            Reflect attributionSourceState = Reflect.on(attributionSource).call("asScopedParcelState");
+            try (AutoCloseable closeable = attributionSourceState.as(AutoCloseable.class)) {
+                int initResult = audioRecord
+                        .call("native_setup", (Object) new WeakReference<AudioRecord>(audioRecord.get()),
+                                (Object) audioAttributes, sampleRate, CHANNEL_CONFIG, 0, FORMAT,
+                                audioRecord.get("mNativeBufferSizeInBytes"), session,
+                                attributionSourceState.call("getParcel").get(), 0L, 0)
+                        .get();
+                if (initResult != AudioRecord.SUCCESS) {
+                    Ln.e("Error code " + initResult + " when initializing native AudioRecord object.");
+                    return null;
+                }
+            }
+
+            audioRecord.set("mSampleRate", sampleRate[0]);
+            audioRecord.set("mSessionId", session[0]);
+
+            audioRecord.set("mState", AudioRecord.STATE_INITIALIZED);
+
+            return audioRecord.get();
+        } catch (Throwable e) {
+            Ln.e("createAudioRecord", e);
+            return null;
         }
-        builder.setAudioSource(MediaRecorder.AudioSource.REMOTE_SUBMIX);
-        builder.setAudioFormat(createAudioFormat());
-        int minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, FORMAT);
-        // This buffer size does not impact latency
-        builder.setBufferSizeInBytes(8 * minBufferSize);
-        return builder.build();
     }
 
     private static void startWorkaroundAndroid11() {
