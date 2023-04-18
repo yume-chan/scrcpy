@@ -6,9 +6,11 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.AudioTimestamp;
+import android.media.AudioTrack;
 import android.media.MediaCodec;
 import android.media.MediaRecorder;
 import android.os.Build;
@@ -25,6 +27,7 @@ public final class AudioCapture {
     public static final int BYTES_PER_SAMPLE = 2;
 
     private AudioRecord recorder;
+    private AudioTrack track;
 
     private final AudioTimestamp timestamp = new AudioTimestamp();
     private long previousPts = 0;
@@ -112,6 +115,16 @@ public final class AudioCapture {
         } else {
             startRecording();
         }
+
+        AudioAttributes.Builder attributesBuilder = new AudioAttributes.Builder();
+        attributesBuilder.setUsage(AudioAttributes.USAGE_NOTIFICATION);
+        AudioTrack.Builder trackBuilder = new AudioTrack.Builder();
+        trackBuilder.setAudioAttributes(attributesBuilder.build());
+        // trackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
+        trackBuilder.setAudioFormat(createAudioFormat());
+        trackBuilder.setTransferMode(AudioTrack.MODE_STREAM);
+        track = trackBuilder.build();
+        track.play();
     }
 
     public void stop() {
@@ -127,6 +140,10 @@ public final class AudioCapture {
         if (r <= 0) {
             return r;
         }
+
+        int position = directBuffer.position();
+        track.write(directBuffer, size, AudioTrack.WRITE_BLOCKING);
+        directBuffer.position(position);
 
         long pts;
 
