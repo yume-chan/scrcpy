@@ -157,10 +157,9 @@ public final class DisplayManager {
         int VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8;
         int VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 9;
         int VIRTUAL_DISPLAY_FLAG_TRUSTED = 1 << 10;
-        int flags = VIRTUAL_DISPLAY_FLAG_PRESENTATION
-                | VIRTUAL_DISPLAY_FLAG_CAN_SHOW_WITH_INSECURE_KEYGUARD
-                | VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH
-                | VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS;
+        int flags = VIRTUAL_DISPLAY_FLAG_PUBLIC
+                | VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
+                | VIRTUAL_DISPLAY_FLAG_TRUSTED;
 
         try {
             // Android 10
@@ -177,8 +176,7 @@ public final class DisplayManager {
                     Handler.class,
                     String.class);
             Object virtualDisplay = createVirtualDisplay.invoke(manager, wrapper, null, name, width, height, density,
-                    surface,
-                    flags, null, null, null);
+                    surface, flags, null, null, null);
             Method getDisplay = Class.forName("android.hardware.display.VirtualDisplay").getMethod("getDisplay");
             Display display = (Display) getDisplay.invoke(virtualDisplay);
             return display;

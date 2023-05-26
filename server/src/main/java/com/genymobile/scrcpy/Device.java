@@ -39,10 +39,12 @@ public final class Device {
         void onClipboardTextChanged(String text);
     }
 
-    private final Size deviceSize;
-    private final Rect crop;
+    private Options options;
+
+    private Size deviceSize;
+    private Rect crop;
     private int maxSize;
-    private final int lockVideoOrientation;
+    private int lockVideoOrientation;
 
     private ScreenInfo screenInfo;
     private RotationListener rotationListener;
@@ -52,16 +54,17 @@ public final class Device {
     /**
      * Logical display identifier
      */
-    private final int displayId;
+    private int displayId;
 
     /**
      * The surface flinger layer stack associated with this logical display
      */
-    private final int layerStack;
+    private int layerStack;
 
     private final boolean supportsInputEvents;
 
     public Device(Options options) throws ConfigurationException {
+        this.options = options;
         displayId = options.getDisplayId();
         DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
         if (displayInfo == null) {
@@ -130,7 +133,8 @@ public final class Device {
         }
     }
 
-    public void setDisplayId(int displayId) {
+    public void setDisplayId(int displayId) throws ConfigurationException {
+        this.displayId = displayId;
         DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
         if (displayInfo == null) {
             Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());

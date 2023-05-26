@@ -1,6 +1,7 @@
 package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
+import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 import android.graphics.Rect;
 import android.media.MediaCodec;
@@ -9,6 +10,7 @@ import android.media.MediaFormat;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
+import android.view.Display;
 import android.view.Surface;
 
 import java.io.IOException;
@@ -66,10 +68,7 @@ public class ScreenEncoder implements Device.RotationListener, AsyncProcessor {
         Codec codec = streamer.getCodec();
         MediaCodec mediaCodec = createMediaCodec(codec, encoderName);
         MediaFormat format = createFormat(codec.getMimeType(), videoBitRate, maxFps, codecOptions);
-        IBinder display = createDisplay();
         device.setRotationListener(this);
-
-        streamer.writeVideoHeader(device.getScreenInfo().getVideoSize());
 
         boolean alive;
         try {
@@ -77,10 +76,10 @@ public class ScreenEncoder implements Device.RotationListener, AsyncProcessor {
                 ScreenInfo screenInfo = device.getScreenInfo();
                 Rect contentRect = screenInfo.getContentRect();
 
-                // include the locked video orientation
-                Rect videoRect = screenInfo.getVideoSize().toRect();
-                format.setInteger(MediaFormat.KEY_WIDTH, videoRect.width());
-                format.setInteger(MediaFormat.KEY_HEIGHT, videoRect.height());
+                int width = 1920;
+                int height = 1080;
+                format.setInteger(MediaFormat.KEY_WIDTH, width);
+                format.setInteger(MediaFormat.KEY_HEIGHT, height);
 
                 Surface surface = null;
                 try {
@@ -88,17 +87,16 @@ public class ScreenEncoder implements Device.RotationListener, AsyncProcessor {
                     surface = mediaCodec.createInputSurface();
 
                     try {
-                        Workarounds.prepareMainLooper();
-                        int width = 1920;
-                        int height = 1080;
                         Display virtualDisplay = ServiceManager.getDisplayManager().createVirtualDisplay(surface,
-                                height, width);
+                                width, height);
                         device.setDisplayId(virtualDisplay.getDisplayId());
                         Ln.i("Virtual Display ID: " + virtualDisplay.getDisplayId());
                     } catch (Throwable e) {
                         Ln.e("Can't create virtual display", e);
-                        throw e;
+                        throw new IllegalStateException();
                     }
+
+                    streamer.writeVideoHeader(device.getScreenInfo().getVideoSize());
 
                     mediaCodec.start();
 
@@ -122,7 +120,6 @@ public class ScreenEncoder implements Device.RotationListener, AsyncProcessor {
         } finally {
             mediaCodec.release();
             device.setRotationListener(null);
-            SurfaceControl.destroyDisplay(display);
         }
     }
 
