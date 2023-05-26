@@ -46,14 +46,14 @@ static void test_options(void) {
     char *argv[] = {
         "scrcpy",
         "--always-on-top",
-        "--bit-rate", "5M",
+        "--video-bit-rate", "5M",
         "--crop", "100:200:300:400",
         "--fullscreen",
         "--max-fps", "30",
         "--max-size", "1024",
         "--lock-video-orientation=2", // optional arguments require '='
         // "--no-control" is not compatible with "--turn-screen-off"
-        // "--no-display" is not compatible with "--fulscreen"
+        // "--no-mirror" is not compatible with "--fulscreen"
         "--port", "1234:1236",
         "--push-target", "/sdcard/Movies",
         "--record", "file",
@@ -75,7 +75,7 @@ static void test_options(void) {
 
     const struct scrcpy_options *opts = &args.opts;
     assert(opts->always_on_top);
-    assert(opts->bit_rate == 5000000);
+    assert(opts->video_bit_rate == 5000000);
     assert(!strcmp(opts->crop, "100:200:300:400"));
     assert(opts->fullscreen);
     assert(opts->max_fps == 30);
@@ -108,8 +108,8 @@ static void test_options2(void) {
     char *argv[] = {
         "scrcpy",
         "--no-control",
-        "--no-display",
-        "--record", "file.mp4", // cannot enable --no-display without recording
+        "--no-mirror",
+        "--record", "file.mp4", // cannot enable --no-mirror without recording
     };
 
     bool ok = scrcpy_parse_args(&args, ARRAY_LEN(argv), argv);
@@ -117,7 +117,7 @@ static void test_options2(void) {
 
     const struct scrcpy_options *opts = &args.opts;
     assert(!opts->control);
-    assert(!opts->display);
+    assert(!opts->mirror);
     assert(!strcmp(opts->record_filename, "file.mp4"));
     assert(opts->record_format == SC_RECORD_FORMAT_MP4);
 }

@@ -18,24 +18,31 @@
 #define SC_DEVICE_NAME_FIELD_LENGTH 64
 struct sc_server_info {
     char device_name[SC_DEVICE_NAME_FIELD_LENGTH];
-    struct sc_size frame_size;
 };
 
 struct sc_server_params {
+    uint32_t scid;
     const char *req_serial;
     enum sc_log_level log_level;
+    enum sc_codec video_codec;
+    enum sc_codec audio_codec;
     const char *crop;
-    const char *codec_options;
-    const char *encoder_name;
+    const char *video_codec_options;
+    const char *audio_codec_options;
+    const char *video_encoder;
+    const char *audio_encoder;
     struct sc_port_range port_range;
     uint32_t tunnel_host;
     uint16_t tunnel_port;
     uint16_t max_size;
-    uint32_t bit_rate;
+    uint32_t video_bit_rate;
+    uint32_t audio_bit_rate;
     uint16_t max_fps;
     int8_t lock_video_orientation;
     bool control;
     uint32_t display_id;
+    bool video;
+    bool audio;
     bool show_touches;
     bool stay_awake;
     bool force_adb_forward;
@@ -48,12 +55,15 @@ struct sc_server_params {
     bool select_tcpip;
     bool cleanup;
     bool power_on;
+    bool list_encoders;
+    bool list_displays;
 };
 
 struct sc_server {
     // The internal allocated strings are copies owned by the server
     struct sc_server_params params;
     char *serial;
+    char *device_socket_name;
 
     sc_thread thread;
     struct sc_server_info info; // initialized once connected
@@ -66,6 +76,7 @@ struct sc_server {
     struct sc_adb_tunnel tunnel;
 
     sc_socket video_socket;
+    sc_socket audio_socket;
     sc_socket control_socket;
 
     const struct sc_server_callbacks *cbs;
@@ -104,6 +115,10 @@ sc_server_start(struct sc_server *server);
 // disconnect and kill the server process
 void
 sc_server_stop(struct sc_server *server);
+
+// join the server thread
+void
+sc_server_join(struct sc_server *server);
 
 // close and release sockets
 void

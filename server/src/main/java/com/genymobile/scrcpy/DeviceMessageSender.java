@@ -6,6 +6,8 @@ public final class DeviceMessageSender {
 
     private final DesktopConnection connection;
 
+    private Thread thread;
+
     private String clipboardText;
 
     private long ack;
@@ -24,8 +26,8 @@ public final class DeviceMessageSender {
         notify();
     }
 
-    public void loop() throws IOException, InterruptedException {
-        while (true) {
+    private void loop() throws IOException, InterruptedException {
+        while (!Thread.currentThread().isInterrupted()) {
             String text;
             long sequence;
             synchronized (this) {
@@ -47,6 +49,30 @@ public final class DeviceMessageSender {
                 DeviceMessage event = DeviceMessage.createClipboard(text);
                 connection.sendDeviceMessage(event);
             }
+        }
+    }
+    public void start() {
+        thread = new Thread(() -> {
+            try {
+                loop();
+            } catch (IOException | InterruptedException e) {
+                // this is expected on close
+            } finally {
+                Ln.d("Device message sender stopped");
+            }
+        });
+        thread.start();
+    }
+
+    public void stop() {
+        if (thread != null) {
+            thread.interrupt();
+        }
+    }
+
+    public void join() throws InterruptedException {
+        if (thread != null) {
+            thread.join();
         }
     }
 }

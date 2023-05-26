@@ -1,11 +1,13 @@
 #include "demuxer.h"
 
 #include <assert.h>
+#include <libavutil/channel_layout.h>
 #include <libavutil/time.h>
 #include <unistd.h>
 
 #include "decoder.h"
 #include "events.h"
+#include "packet_merger.h"
 #include "recorder.h"
 #include "util/binary.h"
 #include "util/log.h"
@@ -16,6 +18,64 @@
 #define SC_PACKET_FLAG_KEY_FRAME (UINT64_C(1) << 62)
 
 #define SC_PACKET_PTS_MASK (SC_PACKET_FLAG_KEY_FRAME - 1)
+
+static enum AVCodecID
+sc_demuxer_to_avcodec_id(uint32_t codec_id) {
+#define SC_CODEC_ID_H264 UINT32_C(0x68323634) // "h264" in ASCII
+#define SC_CODEC_ID_H265 UINT32_C(0x68323635) // "h265" in ASCII
+#define SC_CODEC_ID_AV1 UINT32_C(0x00617631) // "av1" in ASCII
+#define SC_CODEC_ID_OPUS UINT32_C(0x6f707573) // "opus" in ASCII
+#define SC_CODEC_ID_AAC UINT32_C(0x00616163) // "aac in ASCII"
+#define SC_CODEC_ID_RAW UINT32_C(0x00726177) // "raw" in ASCII
+    switch (codec_id) {
+        case SC_CODEC_ID_H264:
+            return AV_CODEC_ID_H264;
+        case SC_CODEC_ID_H265:
+            return AV_CODEC_ID_HEVC;
+        case SC_CODEC_ID_AV1:
+#ifdef SCRCPY_LAVC_HAS_AV1
+            return AV_CODEC_ID_AV1;
+#else
+            LOGE("AV1 not supported by this FFmpeg version");
+            return AV_CODEC_ID_NONE;
+#endif
+        case SC_CODEC_ID_OPUS:
+            return AV_CODEC_ID_OPUS;
+        case SC_CODEC_ID_AAC:
+            return AV_CODEC_ID_AAC;
+        case SC_CODEC_ID_RAW:
+            return AV_CODEC_ID_PCM_S16LE;
+        default:
+            LOGE("Unknown codec id 0x%08" PRIx32, codec_id);
+            return AV_CODEC_ID_NONE;
+    }
+}
+
+static bool
+sc_demuxer_recv_codec_id(struct sc_demuxer *demuxer, uint32_t *codec_id) {
+    uint8_t data[4];
+    ssize_t r = net_recv_all(demuxer->socket, data, 4);
+    if (r < 4) {
+        return false;
+    }
+
+    *codec_id = sc_read32be(data);
+    return true;
+}
+
+static bool
+sc_demuxer_recv_video_size(struct sc_demuxer *demuxer, uint32_t *width,
+                           uint32_t *height) {
+    uint8_t data[8];
+    ssize_t r = net_recv_all(demuxer->socket, data, 8);
+    if (r < 8) {
+        return false;
+    }
+
+    *width = sc_read32be(data);
+    *height = sc_read32be(data + 4);
+    return true;
+}
 
 static bool
 sc_demuxer_recv_packet(struct sc_demuxer *demuxer, AVPacket *packet) {
@@ -75,200 +135,172 @@ sc_demuxer_recv_packet(struct sc_demuxer *demuxer, AVPacket *packet) {
     return true;
 }
 
-static bool
-push_packet_to_sinks(struct sc_demuxer *demuxer, const AVPacket *packet) {
-    for (unsigned i = 0; i < demuxer->sink_count; ++i) {
-        struct sc_packet_sink *sink = demuxer->sinks[i];
-        if (!sink->ops->push(sink, packet)) {
-            LOGE("Could not send config packet to sink %d", i);
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static bool
-sc_demuxer_push_packet(struct sc_demuxer *demuxer, AVPacket *packet) {
-    bool is_config = packet->pts == AV_NOPTS_VALUE;
-
-    // A config packet must not be decoded immediately (it contains no
-    // frame); instead, it must be concatenated with the future data packet.
-    if (demuxer->pending || is_config) {
-        size_t offset;
-        if (demuxer->pending) {
-            offset = demuxer->pending->size;
-            if (av_grow_packet(demuxer->pending, packet->size)) {
-                LOG_OOM();
-                return false;
-            }
-        } else {
-            offset = 0;
-            demuxer->pending = av_packet_alloc();
-            if (!demuxer->pending) {
-                LOG_OOM();
-                return false;
-            }
-            if (av_new_packet(demuxer->pending, packet->size)) {
-                LOG_OOM();
-                av_packet_free(&demuxer->pending);
-                return false;
-            }
-        }
-
-        memcpy(demuxer->pending->data + offset, packet->data, packet->size);
-
-        if (!is_config) {
-            // prepare the concat packet to send to the decoder
-            demuxer->pending->pts = packet->pts;
-            demuxer->pending->dts = packet->dts;
-            demuxer->pending->flags = packet->flags;
-            packet = demuxer->pending;
-        }
-    }
-
-    bool ok = push_packet_to_sinks(demuxer, packet);
-
-    if (!is_config && demuxer->pending) {
-        // the pending packet must be discarded (consumed or error)
-        av_packet_free(&demuxer->pending);
-    }
-
-    if (!ok) {
-        LOGE("Could not process packet");
-        return false;
-    }
-
-    return true;
-}
-
-static void
-sc_demuxer_close_first_sinks(struct sc_demuxer *demuxer, unsigned count) {
-    while (count) {
-        struct sc_packet_sink *sink = demuxer->sinks[--count];
-        sink->ops->close(sink);
-    }
-}
-
-static inline void
-sc_demuxer_close_sinks(struct sc_demuxer *demuxer) {
-    sc_demuxer_close_first_sinks(demuxer, demuxer->sink_count);
-}
-
-static bool
-sc_demuxer_open_sinks(struct sc_demuxer *demuxer, const AVCodec *codec) {
-    for (unsigned i = 0; i < demuxer->sink_count; ++i) {
-        struct sc_packet_sink *sink = demuxer->sinks[i];
-        if (!sink->ops->open(sink, codec)) {
-            LOGE("Could not open packet sink %d", i);
-            sc_demuxer_close_first_sinks(demuxer, i);
-            return false;
-        }
-    }
-
-    return true;
-}
-
 static int
 run_demuxer(void *data) {
     struct sc_demuxer *demuxer = data;
 
-    const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
-    if (!codec) {
-        LOGE("H.264 decoder not found");
+    // Flag to report end-of-stream (i.e. device disconnected)
+    enum sc_demuxer_status status = SC_DEMUXER_STATUS_ERROR;
+
+    uint32_t raw_codec_id;
+    bool ok = sc_demuxer_recv_codec_id(demuxer, &raw_codec_id);
+    if (!ok) {
+        LOGE("Demuxer '%s': stream disabled due to connection error",
+             demuxer->name);
         goto end;
     }
 
-    demuxer->codec_ctx = avcodec_alloc_context3(codec);
-    if (!demuxer->codec_ctx) {
+    if (raw_codec_id == 0) {
+        LOGW("Demuxer '%s': stream explicitly disabled by the device",
+             demuxer->name);
+        sc_packet_source_sinks_disable(&demuxer->packet_source);
+        status = SC_DEMUXER_STATUS_DISABLED;
+        goto end;
+    }
+
+    if (raw_codec_id == 1) {
+        LOGE("Demuxer '%s': stream configuration error on the device",
+             demuxer->name);
+        goto end;
+    }
+
+    enum AVCodecID codec_id = sc_demuxer_to_avcodec_id(raw_codec_id);
+    if (codec_id == AV_CODEC_ID_NONE) {
+        LOGE("Demuxer '%s': stream disabled due to unsupported codec",
+             demuxer->name);
+        sc_packet_source_sinks_disable(&demuxer->packet_source);
+        goto end;
+    }
+
+    const AVCodec *codec = avcodec_find_decoder(codec_id);
+    if (!codec) {
+        LOGE("Demuxer '%s': stream disabled due to missing decoder",
+             demuxer->name);
+        sc_packet_source_sinks_disable(&demuxer->packet_source);
+        goto end;
+    }
+
+    AVCodecContext *codec_ctx = avcodec_alloc_context3(codec);
+    if (!codec_ctx) {
         LOG_OOM();
         goto end;
     }
 
-    if (!sc_demuxer_open_sinks(demuxer, codec)) {
-        LOGE("Could not open demuxer sinks");
-        goto finally_free_codec_ctx;
+    codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+
+    if (codec->type == AVMEDIA_TYPE_VIDEO) {
+        uint32_t width;
+        uint32_t height;
+        ok = sc_demuxer_recv_video_size(demuxer, &width, &height);
+        if (!ok) {
+            goto finally_free_context;
+        }
+
+        codec_ctx->width = width;
+        codec_ctx->height = height;
+        codec_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    } else {
+        // Hardcoded audio properties
+#ifdef SCRCPY_LAVU_HAS_CHLAYOUT
+        codec_ctx->ch_layout = (AVChannelLayout) AV_CHANNEL_LAYOUT_STEREO;
+#else
+        codec_ctx->channel_layout = AV_CH_LAYOUT_STEREO;
+        codec_ctx->channels = 2;
+#endif
+        codec_ctx->sample_rate = 48000;
     }
 
-    demuxer->parser = av_parser_init(AV_CODEC_ID_H264);
-    if (!demuxer->parser) {
-        LOGE("Could not initialize parser");
-        goto finally_close_sinks;
+    if (avcodec_open2(codec_ctx, codec, NULL) < 0) {
+        LOGE("Demuxer '%s': could not open codec", demuxer->name);
+        goto finally_free_context;
     }
 
-    // We must only pass complete frames to av_parser_parse2()!
-    // It's more complicated, but this allows to reduce the latency by 1 frame!
-    demuxer->parser->flags |= PARSER_FLAG_COMPLETE_FRAMES;
+    if (!sc_packet_source_sinks_open(&demuxer->packet_source, codec_ctx)) {
+        goto finally_free_context;
+    }
+
+    // Config packets must be merged with the next non-config packet only for
+    // video streams
+    bool must_merge_config_packet = codec->type == AVMEDIA_TYPE_VIDEO;
+
+    struct sc_packet_merger merger;
+
+    if (must_merge_config_packet) {
+        sc_packet_merger_init(&merger);
+    }
 
     AVPacket *packet = av_packet_alloc();
     if (!packet) {
         LOG_OOM();
-        goto finally_close_parser;
+        goto finally_close_sinks;
     }
 
     for (;;) {
         bool ok = sc_demuxer_recv_packet(demuxer, packet);
         if (!ok) {
             // end of stream
+            status = SC_DEMUXER_STATUS_EOS;
             break;
         }
 
-        ok = sc_demuxer_push_packet(demuxer, packet);
+        if (must_merge_config_packet) {
+            // Prepend any config packet to the next media packet
+            ok = sc_packet_merger_merge(&merger, packet);
+            if (!ok) {
+                av_packet_unref(packet);
+                break;
+            }
+        }
+
+        ok = sc_packet_source_sinks_push(&demuxer->packet_source, packet);
         av_packet_unref(packet);
         if (!ok) {
-            // cannot process packet (error already logged)
+            // The sink already logged its concrete error
             break;
         }
     }
 
-    LOGD("End of frames");
+    LOGD("Demuxer '%s': end of frames", demuxer->name);
 
-    if (demuxer->pending) {
-        av_packet_free(&demuxer->pending);
+    if (must_merge_config_packet) {
+        sc_packet_merger_destroy(&merger);
     }
 
     av_packet_free(&packet);
-finally_close_parser:
-    av_parser_close(demuxer->parser);
 finally_close_sinks:
-    sc_demuxer_close_sinks(demuxer);
-finally_free_codec_ctx:
-    avcodec_free_context(&demuxer->codec_ctx);
+    sc_packet_source_sinks_close(&demuxer->packet_source);
+finally_free_context:
+    // This also calls avcodec_close() internally
+    avcodec_free_context(&codec_ctx);
 end:
-    demuxer->cbs->on_eos(demuxer, demuxer->cbs_userdata);
+    demuxer->cbs->on_ended(demuxer, status, demuxer->cbs_userdata);
 
     return 0;
 }
 
 void
-sc_demuxer_init(struct sc_demuxer *demuxer, sc_socket socket,
+sc_demuxer_init(struct sc_demuxer *demuxer, const char *name, sc_socket socket,
                 const struct sc_demuxer_callbacks *cbs, void *cbs_userdata) {
-    demuxer->socket = socket;
-    demuxer->pending = NULL;
-    demuxer->sink_count = 0;
+    assert(socket != SC_SOCKET_NONE);
 
-    assert(cbs && cbs->on_eos);
+    demuxer->name = name; // statically allocated
+    demuxer->socket = socket;
+    sc_packet_source_init(&demuxer->packet_source);
+
+    assert(cbs && cbs->on_ended);
 
     demuxer->cbs = cbs;
     demuxer->cbs_userdata = cbs_userdata;
 }
 
-void
-sc_demuxer_add_sink(struct sc_demuxer *demuxer, struct sc_packet_sink *sink) {
-    assert(demuxer->sink_count < SC_DEMUXER_MAX_SINKS);
-    assert(sink);
-    assert(sink->ops);
-    demuxer->sinks[demuxer->sink_count++] = sink;
-}
-
 bool
 sc_demuxer_start(struct sc_demuxer *demuxer) {
-    LOGD("Starting demuxer thread");
+    LOGD("Demuxer '%s': starting thread", demuxer->name);
 
     bool ok = sc_thread_create(&demuxer->thread, run_demuxer, "scrcpy-demuxer",
                                demuxer);
     if (!ok) {
-        LOGE("Could not start demuxer thread");
+        LOGE("Demuxer '%s': could not start thread", demuxer->name);
         return false;
     }
     return true;

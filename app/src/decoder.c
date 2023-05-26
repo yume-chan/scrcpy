@@ -2,96 +2,37 @@
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/channel_layout.h>
 
 #include "events.h"
-#include "video_buffer.h"
 #include "trait/frame_sink.h"
 #include "util/log.h"
 
 /** Downcast packet_sink to decoder */
 #define DOWNCAST(SINK) container_of(SINK, struct sc_decoder, packet_sink)
 
-static void
-sc_decoder_close_first_sinks(struct sc_decoder *decoder, unsigned count) {
-    while (count) {
-        struct sc_frame_sink *sink = decoder->sinks[--count];
-        sink->ops->close(sink);
-    }
-}
-
-static inline void
-sc_decoder_close_sinks(struct sc_decoder *decoder) {
-    sc_decoder_close_first_sinks(decoder, decoder->sink_count);
-}
-
 static bool
-sc_decoder_open_sinks(struct sc_decoder *decoder) {
-    for (unsigned i = 0; i < decoder->sink_count; ++i) {
-        struct sc_frame_sink *sink = decoder->sinks[i];
-        if (!sink->ops->open(sink)) {
-            LOGE("Could not open frame sink %d", i);
-            sc_decoder_close_first_sinks(decoder, i);
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static bool
-sc_decoder_open(struct sc_decoder *decoder, const AVCodec *codec) {
-    decoder->codec_ctx = avcodec_alloc_context3(codec);
-    if (!decoder->codec_ctx) {
-        LOG_OOM();
-        return false;
-    }
-
-    decoder->codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-
-    if (avcodec_open2(decoder->codec_ctx, codec, NULL) < 0) {
-        LOGE("Could not open codec");
-        avcodec_free_context(&decoder->codec_ctx);
-        return false;
-    }
-
+sc_decoder_open(struct sc_decoder *decoder, AVCodecContext *ctx) {
     decoder->frame = av_frame_alloc();
     if (!decoder->frame) {
         LOG_OOM();
-        avcodec_close(decoder->codec_ctx);
-        avcodec_free_context(&decoder->codec_ctx);
         return false;
     }
 
-    if (!sc_decoder_open_sinks(decoder)) {
-        LOGE("Could not open decoder sinks");
+    if (!sc_frame_source_sinks_open(&decoder->frame_source, ctx)) {
         av_frame_free(&decoder->frame);
-        avcodec_close(decoder->codec_ctx);
-        avcodec_free_context(&decoder->codec_ctx);
         return false;
     }
+
+    decoder->ctx = ctx;
 
     return true;
 }
 
 static void
 sc_decoder_close(struct sc_decoder *decoder) {
-    sc_decoder_close_sinks(decoder);
+    sc_frame_source_sinks_close(&decoder->frame_source);
     av_frame_free(&decoder->frame);
-    avcodec_close(decoder->codec_ctx);
-    avcodec_free_context(&decoder->codec_ctx);
-}
-
-static bool
-push_frame_to_sinks(struct sc_decoder *decoder, const AVFrame *frame) {
-    for (unsigned i = 0; i < decoder->sink_count; ++i) {
-        struct sc_frame_sink *sink = decoder->sinks[i];
-        if (!sink->ops->push(sink, frame)) {
-            LOGE("Could not send frame to sink %d", i);
-            return false;
-        }
-    }
-
-    return true;
 }
 
 static bool
@@ -102,31 +43,42 @@ sc_decoder_push(struct sc_decoder *decoder, const AVPacket *packet) {
         return true;
     }
 
-    int ret = avcodec_send_packet(decoder->codec_ctx, packet);
+    int ret = avcodec_send_packet(decoder->ctx, packet);
     if (ret < 0 && ret != AVERROR(EAGAIN)) {
-        LOGE("Could not send video packet: %d", ret);
+        LOGE("Decoder '%s': could not send video packet: %d",
+             decoder->name, ret);
         return false;
     }
-    ret = avcodec_receive_frame(decoder->codec_ctx, decoder->frame);
-    if (!ret) {
-        // a frame was received
-        bool ok = push_frame_to_sinks(decoder, decoder->frame);
-        // A frame lost should not make the whole pipeline fail. The error, if
-        // any, is already logged.
-        (void) ok;
 
+    for (;;) {
+        ret = avcodec_receive_frame(decoder->ctx, decoder->frame);
+        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+            break;
+        }
+
+        if (ret) {
+            LOGE("Decoder '%s', could not receive video frame: %d",
+                 decoder->name, ret);
+            return false;
+        }
+
+        // a frame was received
+        bool ok = sc_frame_source_sinks_push(&decoder->frame_source,
+                                             decoder->frame);
         av_frame_unref(decoder->frame);
-    } else if (ret != AVERROR(EAGAIN)) {
-        LOGE("Could not receive video frame: %d", ret);
-        return false;
+        if (!ok) {
+            // Error already logged
+            return false;
+        }
     }
+
     return true;
 }
 
 static bool
-sc_decoder_packet_sink_open(struct sc_packet_sink *sink, const AVCodec *codec) {
+sc_decoder_packet_sink_open(struct sc_packet_sink *sink, AVCodecContext *ctx) {
     struct sc_decoder *decoder = DOWNCAST(sink);
-    return sc_decoder_open(decoder, codec);
+    return sc_decoder_open(decoder, ctx);
 }
 
 static void
@@ -143,8 +95,9 @@ sc_decoder_packet_sink_push(struct sc_packet_sink *sink,
 }
 
 void
-sc_decoder_init(struct sc_decoder *decoder) {
-    decoder->sink_count = 0;
+sc_decoder_init(struct sc_decoder *decoder, const char *name) {
+    decoder->name = name; // statically allocated
+    sc_frame_source_init(&decoder->frame_source);
 
     static const struct sc_packet_sink_ops ops = {
         .open = sc_decoder_packet_sink_open,
@@ -153,12 +106,4 @@ sc_decoder_init(struct sc_decoder *decoder) {
     };
 
     decoder->packet_sink.ops = &ops;
-}
-
-void
-sc_decoder_add_sink(struct sc_decoder *decoder, struct sc_frame_sink *sink) {
-    assert(decoder->sink_count < SC_DECODER_MAX_SINKS);
-    assert(sink);
-    assert(sink->ops);
-    decoder->sinks[decoder->sink_count++] = sink;
 }

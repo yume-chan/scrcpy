@@ -4,10 +4,6 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <libavformat/avformat.h>
-#ifdef _WIN32
-#include <windows.h>
-#include "util/str.h"
-#endif
 #ifdef HAVE_V4L2
 # include <libavdevice/avdevice.h>
 #endif
@@ -19,7 +15,13 @@
 #include "scrcpy.h"
 #include "usb/scrcpy_otg.h"
 #include "util/log.h"
+#include "util/net.h"
 #include "version.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#include "util/str.h"
+#endif
 
 int
 main_scrcpy(int argc, char *argv[]) {
@@ -69,9 +71,11 @@ main_scrcpy(int argc, char *argv[]) {
     }
 #endif
 
-    if (avformat_network_init()) {
+    if (!net_init()) {
         return SCRCPY_EXIT_FAILURE;
     }
+
+    sc_log_configure();
 
 #ifdef HAVE_USB
     enum scrcpy_exit_code ret = args.opts.otg ? scrcpy_otg(&args.opts)
@@ -79,8 +83,6 @@ main_scrcpy(int argc, char *argv[]) {
 #else
     enum scrcpy_exit_code ret = scrcpy(&args.opts);
 #endif
-
-    avformat_network_deinit(); // ignore failure
 
     return ret;
 }

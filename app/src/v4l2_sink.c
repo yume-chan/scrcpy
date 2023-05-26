@@ -126,7 +126,7 @@ run_v4l2_sink(void *data) {
         vs->has_frame = false;
         sc_mutex_unlock(&vs->mutex);
 
-        sc_video_buffer_consume(&vs->vb, vs->frame);
+        sc_frame_buffer_consume(&vs->fb, vs->frame);
 
         bool ok = encode_and_write_frame(vs, vs->frame);
         av_frame_unref(vs->frame);
@@ -141,39 +141,19 @@ run_v4l2_sink(void *data) {
     return 0;
 }
 
-static void
-sc_video_buffer_on_new_frame(struct sc_video_buffer *vb, bool previous_skipped,
-                             void *userdata) {
-    (void) vb;
-    struct sc_v4l2_sink *vs = userdata;
-
-    if (!previous_skipped) {
-        sc_mutex_lock(&vs->mutex);
-        vs->has_frame = true;
-        sc_cond_signal(&vs->cond);
-        sc_mutex_unlock(&vs->mutex);
-    }
-}
-
 static bool
-sc_v4l2_sink_open(struct sc_v4l2_sink *vs) {
-    static const struct sc_video_buffer_callbacks cbs = {
-        .on_new_frame = sc_video_buffer_on_new_frame,
-    };
+sc_v4l2_sink_open(struct sc_v4l2_sink *vs, const AVCodecContext *ctx) {
+    assert(ctx->pix_fmt == AV_PIX_FMT_YUV420P);
+    (void) ctx;
 
-    bool ok = sc_video_buffer_init(&vs->vb, vs->buffering_time, &cbs, vs);
+    bool ok = sc_frame_buffer_init(&vs->fb);
     if (!ok) {
         return false;
     }
 
-    ok = sc_video_buffer_start(&vs->vb);
-    if (!ok) {
-        goto error_video_buffer_destroy;
-    }
-
     ok = sc_mutex_init(&vs->mutex);
     if (!ok) {
-        goto error_video_buffer_stop_and_join;
+        goto error_frame_buffer_destroy;
     }
 
     ok = sc_cond_init(&vs->cond);
@@ -225,11 +205,13 @@ sc_v4l2_sink_open(struct sc_v4l2_sink *vs) {
         goto error_avformat_free_context;
     }
 
-    ostream->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+    int r = avcodec_parameters_from_context(ostream->codecpar, ctx);
+    if (r < 0) {
+        goto error_avformat_free_context;
+    }
+
+    // The codec is from the v4l2 encoder, not from the decoder
     ostream->codecpar->codec_id = encoder->id;
-    ostream->codecpar->format = AV_PIX_FMT_YUV420P;
-    ostream->codecpar->width = vs->frame_size.width;
-    ostream->codecpar->height = vs->frame_size.height;
 
     int ret = avio_open(&vs->format_ctx->pb, vs->device_name, AVIO_FLAG_WRITE);
     if (ret < 0) {
@@ -244,8 +226,8 @@ sc_v4l2_sink_open(struct sc_v4l2_sink *vs) {
         goto error_avio_close;
     }
 
-    vs->encoder_ctx->width = vs->frame_size.width;
-    vs->encoder_ctx->height = vs->frame_size.height;
+    vs->encoder_ctx->width = ctx->width;
+    vs->encoder_ctx->height = ctx->height;
     vs->encoder_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
     vs->encoder_ctx->time_base.num = 1;
     vs->encoder_ctx->time_base.den = 1;
@@ -298,11 +280,8 @@ error_cond_destroy:
     sc_cond_destroy(&vs->cond);
 error_mutex_destroy:
     sc_mutex_destroy(&vs->mutex);
-error_video_buffer_stop_and_join:
-    sc_video_buffer_stop(&vs->vb);
-    sc_video_buffer_join(&vs->vb);
-error_video_buffer_destroy:
-    sc_video_buffer_destroy(&vs->vb);
+error_frame_buffer_destroy:
+    sc_frame_buffer_destroy(&vs->fb);
 
     return false;
 }
@@ -314,10 +293,7 @@ sc_v4l2_sink_close(struct sc_v4l2_sink *vs) {
     sc_cond_signal(&vs->cond);
     sc_mutex_unlock(&vs->mutex);
 
-    sc_video_buffer_stop(&vs->vb);
-
     sc_thread_join(&vs->thread, NULL);
-    sc_video_buffer_join(&vs->vb);
 
     av_packet_free(&vs->packet);
     av_frame_free(&vs->frame);
@@ -327,18 +303,31 @@ sc_v4l2_sink_close(struct sc_v4l2_sink *vs) {
     avformat_free_context(vs->format_ctx);
     sc_cond_destroy(&vs->cond);
     sc_mutex_destroy(&vs->mutex);
-    sc_video_buffer_destroy(&vs->vb);
+    sc_frame_buffer_destroy(&vs->fb);
 }
 
 static bool
 sc_v4l2_sink_push(struct sc_v4l2_sink *vs, const AVFrame *frame) {
-    return sc_video_buffer_push(&vs->vb, frame);
+    bool previous_skipped;
+    bool ok = sc_frame_buffer_push(&vs->fb, frame, &previous_skipped);
+    if (!ok) {
+        return false;
+    }
+
+    if (!previous_skipped) {
+        sc_mutex_lock(&vs->mutex);
+        vs->has_frame = true;
+        sc_cond_signal(&vs->cond);
+        sc_mutex_unlock(&vs->mutex);
+    }
+
+    return true;
 }
 
 static bool
-sc_v4l2_frame_sink_open(struct sc_frame_sink *sink) {
+sc_v4l2_frame_sink_open(struct sc_frame_sink *sink, const AVCodecContext *ctx) {
     struct sc_v4l2_sink *vs = DOWNCAST(sink);
-    return sc_v4l2_sink_open(vs);
+    return sc_v4l2_sink_open(vs, ctx);
 }
 
 static void
@@ -354,16 +343,12 @@ sc_v4l2_frame_sink_push(struct sc_frame_sink *sink, const AVFrame *frame) {
 }
 
 bool
-sc_v4l2_sink_init(struct sc_v4l2_sink *vs, const char *device_name,
-                  struct sc_size frame_size, sc_tick buffering_time) {
+sc_v4l2_sink_init(struct sc_v4l2_sink *vs, const char *device_name) {
     vs->device_name = strdup(device_name);
     if (!vs->device_name) {
         LOGE("Could not strdup v4l2 device name");
         return false;
     }
-
-    vs->frame_size = frame_size;
-    vs->buffering_time = buffering_time;
 
     static const struct sc_frame_sink_ops ops = {
         .open = sc_v4l2_frame_sink_open,

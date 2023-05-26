@@ -339,6 +339,7 @@ simulate_virtual_finger(struct sc_input_manager *im,
         im->forward_all_clicks ? POINTER_ID_VIRTUAL_MOUSE
                                : POINTER_ID_VIRTUAL_FINGER;
     msg.inject_touch_event.pressure = up ? 0.0f : 1.0f;
+    msg.inject_touch_event.action_button = 0;
     msg.inject_touch_event.buttons = 0;
 
     if (!sc_controller_push_msg(im->controller, &msg)) {
@@ -796,7 +797,8 @@ sc_input_manager_process_file(struct sc_input_manager *im,
 }
 
 void
-sc_input_manager_handle_event(struct sc_input_manager *im, SDL_Event *event) {
+sc_input_manager_handle_event(struct sc_input_manager *im,
+                              const SDL_Event *event) {
     bool control = im->controller;
     switch (event->type) {
         case SDL_TEXTINPUT:

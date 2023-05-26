@@ -2,34 +2,42 @@ _scrcpy() {
     local cur prev words cword
     local opts="
         --always-on-top
-        -b --bit-rate=
-        --codec-options=
+        --audio-bit-rate=
+        --audio-buffer=
+        --audio-codec=
+        --audio-codec-options=
+        --audio-encoder=
+        --audio-output-buffer=
+        -b --video-bit-rate=
         --crop=
         -d --select-usb
         --disable-screensaver
         --display=
         --display-buffer=
         -e --select-tcpip
-        --encoder=
         --force-adb-forward
         --forward-all-clicks
         -f --fullscreen
         -K --hid-keyboard
         -h --help
         --legacy-paste
+        --list-displays
+        --list-encoders
         --lock-video-orientation
         --lock-video-orientation=
         --max-fps=
         -M --hid-mouse
         -m --max-size=
+        --no-audio
         --no-cleanup
-        --no-clipboard-on-error
+        --no-clipboard-autosync
         --no-downsize-on-error
         -n --no-control
-        -N --no-display
+        -N --no-mirror
         --no-key-repeat
         --no-mipmaps
         --no-power-on
+        --no-video
         --otg
         -p --port=
         --power-off-on-close
@@ -40,6 +48,7 @@ _scrcpy() {
         -r --record=
         --record-format=
         --render-driver=
+        --require-audio
         --rotation=
         -s --serial=
         --shortcut-mod=
@@ -53,6 +62,9 @@ _scrcpy() {
         --v4l2-sink=
         -V --verbosity=
         -v --version
+        --video-codec=
+        --video-codec-options=
+        --video-encoder=
         -w --stay-awake
         --window-borderless
         --window-title=
@@ -64,6 +76,14 @@ _scrcpy() {
     _init_completion -s || return
 
     case "$prev" in
+        --video-codec)
+            COMPREPLY=($(compgen -W 'h264 h265 av1' -- "$cur"))
+            return
+            ;;
+        --audio-codec)
+            COMPREPLY=($(compgen -W 'opus aac raw' -- "$cur"))
+            return
+            ;;
         --lock-video-orientation)
             COMPREPLY=($(compgen -W 'unlocked initial 0 1 2 3' -- "$cur"))
             return
@@ -98,20 +118,26 @@ _scrcpy() {
             COMPREPLY=($(compgen -W "$("${ADB:-adb}" devices | awk '$2 == "device" {print $1}')" -- ${cur}))
             return
             ;;
-        -b|--bitrate \
-        |--codec-options \
+        --audio-bit-rate \
+        |--audio-buffer \
+        |-b|--video-bit-rate \
+        |--audio-codec-options \
+        |--audio-encoder \
+        |--audio-output-buffer \
         |--crop \
         |--display \
         |--display-buffer \
-        |--encoder \
         |--max-fps \
         |-m|--max-size \
         |-p|--port \
         |--push-target \
+        |--rotation \
         |--tunnel-host \
         |--tunnel-port \
         |--v4l2-buffer \
         |--v4l2-sink \
+        |--video-codec-options \
+        |--video-encoder \
         |--tcpip \
         |--window-*)
             # Option accepting an argument, but nothing to auto-complete

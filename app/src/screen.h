@@ -9,13 +9,14 @@
 
 #include "controller.h"
 #include "coords.h"
+#include "display.h"
 #include "fps_counter.h"
+#include "frame_buffer.h"
 #include "input_manager.h"
 #include "opengl.h"
 #include "trait/key_processor.h"
 #include "trait/frame_sink.h"
 #include "trait/mouse_processor.h"
-#include "video_buffer.h"
 
 struct sc_screen {
     struct sc_frame_sink frame_sink; // frame sink trait
@@ -24,8 +25,9 @@ struct sc_screen {
     bool open; // track the open/close state to assert correct behavior
 #endif
 
+    struct sc_display display;
     struct sc_input_manager im;
-    struct sc_video_buffer vb;
+    struct sc_frame_buffer fb;
     struct sc_fps_counter fps_counter;
 
     // The initial requested window properties
@@ -39,9 +41,6 @@ struct sc_screen {
     } req;
 
     SDL_Window *window;
-    SDL_Renderer *renderer;
-    SDL_Texture *texture;
-    struct sc_opengl gl;
     struct sc_size frame_size;
     struct sc_size content_size; // rotated frame_size
 
@@ -57,9 +56,7 @@ struct sc_screen {
     bool has_frame;
     bool fullscreen;
     bool maximized;
-    bool mipmaps;
-
-    bool event_failed; // in case SDL_PushEvent() returned an error
+    bool minimized;
 
     // To enable/disable mouse capture, a mouse capture key (LALT, LGUI or
     // RGUI) must be pressed. This variable tracks the pressed capture key.
@@ -80,7 +77,6 @@ struct sc_screen_params {
     const struct sc_shortcut_mods *shortcut_mods;
 
     const char *window_title;
-    struct sc_size frame_size;
     bool always_on_top;
 
     int16_t window_x; // accepts SC_WINDOW_POSITION_UNDEFINED
@@ -95,8 +91,6 @@ struct sc_screen_params {
 
     bool fullscreen;
     bool start_fps_counter;
-
-    sc_tick buffering_time;
 };
 
 // initialize screen, create window, renderer and texture (window is hidden)
@@ -140,8 +134,9 @@ void
 sc_screen_set_rotation(struct sc_screen *screen, unsigned rotation);
 
 // react to SDL events
-void
-sc_screen_handle_event(struct sc_screen *screen, SDL_Event *event);
+// If this function returns false, scrcpy must exit with an error.
+bool
+sc_screen_handle_event(struct sc_screen *screen, const SDL_Event *event);
 
 // convert point from window coordinates to frame coordinates
 // x and y are expressed in pixels

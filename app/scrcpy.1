@@ -20,20 +20,54 @@ provides display and control of Android devices connected on USB (or over TCP/IP
 Make scrcpy window always on top (above other windows).
 
 .TP
-.BI "\-b, \-\-bit\-rate " value
-Encode the video at the given bit\-rate, expressed in bits/s. Unit suffixes are supported: '\fBK\fR' (x1000) and '\fBM\fR' (x1000000).
+.BI "\-\-audio\-bit\-rate " value
+Encode the audio at the given bit\-rate, expressed in bits/s. Unit suffixes are supported: '\fBK\fR' (x1000) and '\fBM\fR' (x1000000).
 
-Default is 8000000.
+Default is 128K (128000).
 
 .TP
-.BI "\-\-codec\-options " key[:type]=value[,...]
-Set a list of comma-separated key:type=value options for the device encoder.
+.BI "\-\-audio\-buffer ms
+Configure the audio buffering delay (in milliseconds).
+
+Lower values decrease the latency, but increase the likelyhood of buffer underrun (causing audio glitches).
+
+Default is 50.
+
+.TP
+.BI "\-\-audio\-output\-buffer ms
+Configure the size of the SDL audio output buffer (in milliseconds).
+
+If you get "robotic" audio playback, you should test with a higher value (10). Do not change this setting otherwise.
+
+Default is 5.
+
+.TP
+.BI "\-\-audio\-codec " name
+Select an audio codec (opus, aac or raw).
+
+Default is opus.
+
+.TP
+.BI "\-\-audio\-codec\-options " key\fR[:\fItype\fR]=\fIvalue\fR[,...]
+Set a list of comma-separated key:type=value options for the device audio encoder.
 
 The possible values for 'type' are 'int' (default), 'long', 'float' and 'string'.
 
 The list of possible codec options is available in the Android documentation
 .UR https://d.android.com/reference/android/media/MediaFormat
 .UE .
+
+.TP
+.BI "\-\-audio\-encoder " name
+Use a specific MediaCodec audio encoder (depending on the codec provided by \fB\-\-audio\-codec\fR).
+
+The available encoders can be listed by \-\-list\-encoders.
+
+.TP
+.BI "\-b, \-\-video\-bit\-rate " value
+Encode the video at the given bit\-rate, expressed in bits/s. Unit suffixes are supported: '\fBK\fR' (x1000) and '\fBM\fR' (x1000000).
+
+Default is 8M (8000000).
 
 .TP
 .BI "\-\-crop " width\fR:\fIheight\fR:\fIx\fR:\fIy
@@ -55,10 +89,9 @@ Disable screensaver while scrcpy is running.
 
 .TP
 .BI "\-\-display " id
-Specify the display id to mirror.
+Specify the device display id to mirror.
 
-The list of possible display ids can be listed by "adb shell dumpsys display"
-(search "mDisplayId=" in the output).
+The available display ids can be listed by \-\-list\-displays.
 
 Default is 0.
 
@@ -73,10 +106,6 @@ Default is 0 (no buffering).
 Use TCP/IP device (if there is exactly one, like adb -e).
 
 Also see \fB\-d\fR (\fB\-\-select\-usb\fR).
-
-.TP
-.BI "\-\-encoder " name
-Use a specific MediaCodec encoder (must be a H.264 encoder).
 
 .TP
 .B \-\-force\-adb\-forward
@@ -117,7 +146,15 @@ Inject computer clipboard text as a sequence of key events on Ctrl+v (like MOD+S
 This is a workaround for some devices not behaving as expected when setting the device clipboard programmatically.
 
 .TP
-.BI "\-\-lock\-video\-orientation[=value]
+.B \-\-list\-encoders
+List video and audio encoders available on the device.
+
+.TP
+.B \-\-list\-displays
+List displays available on the device.
+
+.TP
+\fB\-\-lock\-video\-orientation\fR[=\fIvalue\fR]
 Lock video orientation to \fIvalue\fR. Possible values are "unlocked", "initial" (locked to the initial orientation), 0, 1, 2 and 3. Natural device orientation is 0, and each increment adds a 90 degrees rotation counterclockwise.
 
 Default is "unlocked".
@@ -147,6 +184,10 @@ It may only work over USB.
 Also see \fB\-\-hid\-keyboard\fR.
 
 .TP
+.B \-\-no\-audio
+Disable audio forwarding.
+
+.TP
 .B \-\-no\-cleanup
 By default, scrcpy removes the server binary from the device and restores the device state (show touches, stay awake and power mode) on exit.
 
@@ -169,8 +210,8 @@ This option disables this behavior.
 Disable device control (mirror the device in read\-only).
 
 .TP
-.B \-N, \-\-no\-display
-Do not display device (only when screen recording is enabled).
+.B \-N, \-\-no\-mirror
+Do not mirror device video or audio on the computer (only when recording or V4L2 sink is enabled).
 
 .TP
 .B \-\-no\-key\-repeat
@@ -183,6 +224,10 @@ If the renderer is OpenGL 3.0+ or OpenGL ES 2.0+, then mipmaps are automatically
 .TP
 .B \-\-no\-power\-on
 Do not power on the device on start.
+
+.TP
+.B \-\-no\-video
+Disable video forwarding.
 
 .TP
 .B \-\-otg
@@ -199,7 +244,7 @@ It may only work over USB.
 See \fB\-\-hid\-keyboard\fR and \fB\-\-hid\-mouse\fR.
 
 .TP
-.BI "\-p, \-\-port " port[:port]
+.BI "\-p, \-\-port " port\fR[:\fIport\fR]
 Set the TCP port (range) used by the client to listen.
 
 Default is 27183:27199.
@@ -252,6 +297,10 @@ Supported names are currently "direct3d", "opengl", "opengles2", "opengles", "me
 .UE
 
 .TP
+.B \-\-require\-audio
+By default, scrcpy mirrors only the video if audio capture fails on the device. This option makes scrcpy fail if audio is enabled but does not work.
+
+.TP
 .BI "\-\-rotation " value
 Set the initial display rotation. Possibles values are 0, 1, 2 and 3. Each increment adds a 90 degrees rotation counterclockwise.
 
@@ -260,7 +309,7 @@ Set the initial display rotation. Possibles values are 0, 1, 2 and 3. Each incre
 The device serial number. Mandatory only if several devices are connected to adb.
 
 .TP
-.BI "\-\-shortcut\-mod " key[+...]][,...]
+.BI "\-\-shortcut\-mod " key\fR[+...]][,...]
 Specify the modifiers to use for scrcpy shortcuts. Possible keys are "lctrl", "rctrl", "lalt", "ralt", "lsuper" and "rsuper".
 
 A shortcut can consist in several keys, separated by '+'. Several shortcuts can be specified, separated by ','.
@@ -270,7 +319,7 @@ For example, to use either LCtrl+LAlt or LSuper for scrcpy shortcuts, pass "lctr
 Default is "lalt,lsuper" (left-Alt or left-Super).
 
 .TP
-.BI "\-\-tcpip[=ip[:port]]
+.BI "\-\-tcpip\fR[=\fIip\fR[:\fIport\fR]]
 Configure and reconnect the device over TCP/IP.
 
 If a destination address is provided, then scrcpy connects to this address before starting. The device must listen on the given TCP port (default is 5555).
@@ -322,6 +371,28 @@ Default is "info" for release builds, "debug" for debug builds.
 .TP
 .B \-v, \-\-version
 Print the version of scrcpy.
+
+.TP
+.BI "\-\-video\-codec " name
+Select a video codec (h264, h265 or av1).
+
+Default is h264.
+
+.TP
+.BI "\-\-video\-codec\-options " key\fR[:\fItype\fR]=\fIvalue\fR[,...]
+Set a list of comma-separated key:type=value options for the device video encoder.
+
+The possible values for 'type' are 'int' (default), 'long', 'float' and 'string'.
+
+The list of possible codec options is available in the Android documentation
+.UR https://d.android.com/reference/android/media/MediaFormat
+.UE .
+
+.TP
+.BI "\-\-video\-encoder " name
+Use a specific MediaCodec video encoder (depending on the codec provided by \fB\-\-video\-codec\fR).
+
+The available encoders can be listed by \-\-list\-encoders.
 
 .TP
 .B \-w, \-\-stay-awake
@@ -516,7 +587,7 @@ Copyright \(co 2018 Genymobile
 Genymobile
 .UE
 
-Copyright \(co 2018\-2022
+Copyright \(co 2018\-2023
 .MT rom@rom1v.com
 Romain Vimont
 .ME

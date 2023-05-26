@@ -15,10 +15,13 @@ public final class DesktopConnection implements Closeable {
 
     private static final int DEVICE_NAME_FIELD_LENGTH = 64;
 
-    private static final String SOCKET_NAME = "scrcpy";
+    private static final String SOCKET_NAME_PREFIX = "scrcpy";
 
     private final LocalSocket videoSocket;
     private final FileDescriptor videoFd;
+
+    private final LocalSocket audioSocket;
+    private final FileDescriptor audioFd;
 
     private final LocalSocket controlSocket;
     private final InputStream controlInputStream;
@@ -27,9 +30,10 @@ public final class DesktopConnection implements Closeable {
     private final ControlMessageReader reader = new ControlMessageReader();
     private final DeviceMessageWriter writer = new DeviceMessageWriter();
 
-    private DesktopConnection(LocalSocket videoSocket, LocalSocket controlSocket) throws IOException {
+    private DesktopConnection(LocalSocket videoSocket, LocalSocket audioSocket, LocalSocket controlSocket) throws IOException {
         this.videoSocket = videoSocket;
         this.controlSocket = controlSocket;
+        this.audioSocket = audioSocket;
         if (controlSocket != null) {
             controlInputStream = controlSocket.getInputStream();
             controlOutputStream = controlSocket.getOutputStream();
@@ -37,7 +41,8 @@ public final class DesktopConnection implements Closeable {
             controlInputStream = null;
             controlOutputStream = null;
         }
-        videoFd = videoSocket.getFileDescriptor();
+        videoFd = videoSocket != null ? videoSocket.getFileDescriptor() : null;
+        audioFd = audioSocket != null ? audioSocket.getFileDescriptor() : null;
     }
 
     private static LocalSocket connect(String abstractName) throws IOException {
@@ -46,47 +51,96 @@ public final class DesktopConnection implements Closeable {
         return localSocket;
     }
 
-    public static DesktopConnection open(boolean tunnelForward, boolean control, boolean sendDummyByte) throws IOException {
-        LocalSocket videoSocket;
-        LocalSocket controlSocket = null;
-        if (tunnelForward) {
-            LocalServerSocket localServerSocket = new LocalServerSocket(SOCKET_NAME);
-            try {
-                videoSocket = localServerSocket.accept();
-                if (sendDummyByte) {
-                    // send one byte so the client may read() to detect a connection error
-                    videoSocket.getOutputStream().write(0);
-                }
-                if (control) {
-                    try {
-                        controlSocket = localServerSocket.accept();
-                    } catch (IOException | RuntimeException e) {
-                        videoSocket.close();
-                        throw e;
-                    }
-                }
-            } finally {
-                localServerSocket.close();
-            }
-        } else {
-            videoSocket = connect(SOCKET_NAME);
-            if (control) {
-                try {
-                    controlSocket = connect(SOCKET_NAME);
-                } catch (IOException | RuntimeException e) {
-                    videoSocket.close();
-                    throw e;
-                }
-            }
+    private static String getSocketName(int scid) {
+        if (scid == -1) {
+            // If no SCID is set, use "scrcpy" to simplify using scrcpy-server alone
+            return SOCKET_NAME_PREFIX;
         }
 
-        return new DesktopConnection(videoSocket, controlSocket);
+        return SOCKET_NAME_PREFIX + String.format("_%08x", scid);
+    }
+
+    public static DesktopConnection open(int scid, boolean tunnelForward, boolean video, boolean audio, boolean control, boolean sendDummyByte)
+            throws IOException {
+        String socketName = getSocketName(scid);
+
+        LocalSocket firstSocket = null;
+
+        LocalSocket videoSocket = null;
+        LocalSocket audioSocket = null;
+        LocalSocket controlSocket = null;
+        try {
+            if (tunnelForward) {
+                try (LocalServerSocket localServerSocket = new LocalServerSocket(socketName)) {
+                    if (video) {
+                        videoSocket = localServerSocket.accept();
+                        firstSocket = videoSocket;
+                    }
+                    if (audio) {
+                        audioSocket = localServerSocket.accept();
+                        if (firstSocket == null) {
+                            firstSocket = audioSocket;
+                        }
+                    }
+                    if (control) {
+                        controlSocket = localServerSocket.accept();
+                        if (firstSocket == null) {
+                            firstSocket = controlSocket;
+                        }
+                    }
+                    if (sendDummyByte) {
+                        // send one byte so the client may read() to detect a connection error
+                        firstSocket.getOutputStream().write(0);
+                    }
+                }
+            } else {
+                if (video) {
+                    videoSocket = connect(socketName);
+                }
+                if (audio) {
+                    audioSocket = connect(socketName);
+                }
+                if (control) {
+                    controlSocket = connect(socketName);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            if (videoSocket != null) {
+                videoSocket.close();
+            }
+            if (audioSocket != null) {
+                audioSocket.close();
+            }
+            if (controlSocket != null) {
+                controlSocket.close();
+            }
+            throw e;
+        }
+
+        return new DesktopConnection(videoSocket, audioSocket, controlSocket);
+    }
+
+    private LocalSocket getFirstSocket() {
+        if (videoSocket != null) {
+            return videoSocket;
+        }
+        if (audioSocket != null) {
+            return audioSocket;
+        }
+        return controlSocket;
     }
 
     public void close() throws IOException {
-        videoSocket.shutdownInput();
-        videoSocket.shutdownOutput();
-        videoSocket.close();
+        if (videoSocket != null) {
+            videoSocket.shutdownInput();
+            videoSocket.shutdownOutput();
+            videoSocket.close();
+        }
+        if (audioSocket != null) {
+            audioSocket.shutdownInput();
+            audioSocket.shutdownOutput();
+            audioSocket.close();
+        }
         if (controlSocket != null) {
             controlSocket.shutdownInput();
             controlSocket.shutdownOutput();
@@ -94,23 +148,24 @@ public final class DesktopConnection implements Closeable {
         }
     }
 
-    public void sendDeviceMeta(String deviceName, int width, int height) throws IOException {
-        byte[] buffer = new byte[DEVICE_NAME_FIELD_LENGTH + 4];
+    public void sendDeviceMeta(String deviceName) throws IOException {
+        byte[] buffer = new byte[DEVICE_NAME_FIELD_LENGTH];
 
         byte[] deviceNameBytes = deviceName.getBytes(StandardCharsets.UTF_8);
         int len = StringUtils.getUtf8TruncationIndex(deviceNameBytes, DEVICE_NAME_FIELD_LENGTH - 1);
         System.arraycopy(deviceNameBytes, 0, buffer, 0, len);
         // byte[] are always 0-initialized in java, no need to set '\0' explicitly
 
-        buffer[DEVICE_NAME_FIELD_LENGTH] = (byte) (width >> 8);
-        buffer[DEVICE_NAME_FIELD_LENGTH + 1] = (byte) width;
-        buffer[DEVICE_NAME_FIELD_LENGTH + 2] = (byte) (height >> 8);
-        buffer[DEVICE_NAME_FIELD_LENGTH + 3] = (byte) height;
-        IO.writeFully(videoFd, buffer, 0, buffer.length);
+        FileDescriptor fd = getFirstSocket().getFileDescriptor();
+        IO.writeFully(fd, buffer, 0, buffer.length);
     }
 
     public FileDescriptor getVideoFd() {
         return videoFd;
+    }
+
+    public FileDescriptor getAudioFd() {
+        return audioFd;
     }
 
     public ControlMessage receiveControlMessage() throws IOException {

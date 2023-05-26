@@ -4,14 +4,17 @@ src = [
     'src/adb/adb_device.c',
     'src/adb/adb_parser.c',
     'src/adb/adb_tunnel.c',
+    'src/audio_player.c',
     'src/cli.c',
     'src/clock.c',
     'src/compat.c',
     'src/control_msg.c',
     'src/controller.c',
     'src/decoder.c',
+    'src/delay_buffer.c',
     'src/demuxer.c',
     'src/device_msg.c',
+    'src/display.c',
     'src/icon.c',
     'src/file_pusher.c',
     'src/fps_counter.c',
@@ -21,22 +24,28 @@ src = [
     'src/mouse_inject.c',
     'src/opengl.c',
     'src/options.c',
+    'src/packet_merger.c',
     'src/receiver.c',
     'src/recorder.c',
     'src/scrcpy.c',
     'src/screen.c',
     'src/server.c',
     'src/version.c',
-    'src/video_buffer.c',
+    'src/trait/frame_source.c',
+    'src/trait/packet_source.c',
     'src/util/acksync.c',
+    'src/util/average.c',
+    'src/util/bytebuf.c',
     'src/util/file.c',
     'src/util/intmap.c',
     'src/util/intr.c',
     'src/util/log.c',
+    'src/util/memory.c',
     'src/util/net.c',
     'src/util/net_intr.c',
     'src/util/process.c',
     'src/util/process_intr.c',
+    'src/util/rand.c',
     'src/util/strbuf.c',
     'src/util/str.c',
     'src/util/term.c',
@@ -97,6 +106,7 @@ if not crossbuild_windows
         dependency('libavformat', version: '>= 57.33'),
         dependency('libavcodec', version: '>= 57.37'),
         dependency('libavutil'),
+        dependency('libswresample'),
         dependency('sdl2', version: '>= 2.0.5'),
     ]
 
@@ -127,24 +137,19 @@ else
     ffmpeg_bin_dir = meson.current_source_dir() + '/prebuilt-deps/data/' + prebuilt_ffmpeg + '/bin'
     ffmpeg_include_dir = 'prebuilt-deps/data/' + prebuilt_ffmpeg + '/include'
 
-    # ffmpeg versions are different for win32 and win64 builds
-    ffmpeg_avcodec = meson.get_cross_property('ffmpeg_avcodec')
-    ffmpeg_avformat = meson.get_cross_property('ffmpeg_avformat')
-    ffmpeg_avutil = meson.get_cross_property('ffmpeg_avutil')
-
     ffmpeg = declare_dependency(
         dependencies: [
-            cc.find_library(ffmpeg_avcodec, dirs: ffmpeg_bin_dir),
-            cc.find_library(ffmpeg_avformat, dirs: ffmpeg_bin_dir),
-            cc.find_library(ffmpeg_avutil, dirs: ffmpeg_bin_dir),
+            cc.find_library('avcodec-60', dirs: ffmpeg_bin_dir),
+            cc.find_library('avformat-60', dirs: ffmpeg_bin_dir),
+            cc.find_library('avutil-58', dirs: ffmpeg_bin_dir),
+            cc.find_library('swresample-4', dirs: ffmpeg_bin_dir),
         ],
         include_directories: include_directories(ffmpeg_include_dir)
     )
 
     prebuilt_libusb = meson.get_cross_property('prebuilt_libusb')
-    prebuilt_libusb_root = meson.get_cross_property('prebuilt_libusb_root')
-    libusb_bin_dir = meson.current_source_dir() + '/prebuilt-deps/data/' + prebuilt_libusb
-    libusb_include_dir = 'prebuilt-deps/data/' + prebuilt_libusb_root + '/include'
+    libusb_bin_dir = meson.current_source_dir() + '/prebuilt-deps/data/' + prebuilt_libusb + '/bin'
+    libusb_include_dir = 'prebuilt-deps/data/' + prebuilt_libusb + '/include'
 
     libusb = declare_dependency(
         dependencies: [
@@ -170,6 +175,9 @@ check_functions = [
     'strdup',
     'asprintf',
     'vasprintf',
+    'nrand48',
+    'jrand48',
+    'reallocarray',
 ]
 
 foreach f : check_functions
@@ -196,10 +204,6 @@ conf.set('PORTABLE', get_option('portable'))
 # overridden by option --port
 conf.set('DEFAULT_LOCAL_PORT_RANGE_FIRST', '27183')
 conf.set('DEFAULT_LOCAL_PORT_RANGE_LAST', '27199')
-
-# the default video bitrate, in bits/second
-# overridden by option --bit-rate
-conf.set('DEFAULT_BIT_RATE', '8000000')  # 8Mbps
 
 # run a server debugger and wait for a client to be attached
 conf.set('SERVER_DEBUGGER', get_option('server_debugger'))
@@ -260,8 +264,9 @@ if get_option('buildtype') == 'debug'
         ['test_binary', [
             'tests/test_binary.c',
         ]],
-        ['test_cbuf', [
-            'tests/test_cbuf.c',
+        ['test_bytebuf', [
+            'tests/test_bytebuf.c',
+            'src/util/bytebuf.c',
         ]],
         ['test_cli', [
             'tests/test_cli.c',
@@ -273,10 +278,6 @@ if get_option('buildtype') == 'debug'
             'src/util/strbuf.c',
             'src/util/term.c',
         ]],
-        ['test_clock', [
-            'tests/test_clock.c',
-            'src/clock.c',
-        ]],
         ['test_control_msg_serialize', [
             'tests/test_control_msg_serialize.c',
             'src/control_msg.c',
@@ -287,9 +288,6 @@ if get_option('buildtype') == 'debug'
             'tests/test_device_msg_deserialize.c',
             'src/device_msg.c',
         ]],
-        ['test_queue', [
-            'tests/test_queue.c',
-        ]],
         ['test_strbuf', [
             'tests/test_strbuf.c',
             'src/util/strbuf.c',
@@ -299,13 +297,18 @@ if get_option('buildtype') == 'debug'
             'src/util/str.c',
             'src/util/strbuf.c',
         ]],
+        ['test_vecdeque', [
+            'tests/test_vecdeque.c',
+            'src/util/memory.c',
+        ]],
         ['test_vector', [
             'tests/test_vector.c',
         ]],
     ]
 
     foreach t : tests
-        exe = executable(t[0], t[1],
+        sources = t[1] + ['src/compat.c']
+        exe = executable(t[0], sources,
                          include_directories: src_dir,
                          dependencies: dependencies,
                          c_args: ['-DSDL_MAIN_HANDLED', '-DSC_TEST'])

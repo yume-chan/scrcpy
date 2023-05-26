@@ -61,12 +61,12 @@ public final class Device {
 
     private final boolean supportsInputEvents;
 
-    public Device(Options options) {
+    public Device(Options options) throws ConfigurationException {
         displayId = options.getDisplayId();
         DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
         if (displayInfo == null) {
-            int[] displayIds = ServiceManager.getDisplayManager().getDisplayIds();
-            throw new InvalidDisplayIdException(displayId, displayIds);
+            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+            throw new ConfigurationException("Unknown display id: " + displayId);
         }
 
         int displayInfoFlags = displayInfo.getFlags();
@@ -128,6 +128,38 @@ public final class Device {
         if (!supportsInputEvents) {
             Ln.w("Input events are not supported for secondary displays before Android 10");
         }
+    }
+
+    public void setDisplayId(int displayId) {
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+        if (displayInfo == null) {
+            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+            throw new ConfigurationException("Unknown display id: " + displayId);
+        }
+
+        int displayInfoFlags = displayInfo.getFlags();
+
+        deviceSize = displayInfo.getSize();
+        crop = options.getCrop();
+        maxSize = options.getMaxSize();
+        lockVideoOrientation = options.getLockVideoOrientation();
+
+        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
+        layerStack = displayInfo.getLayerStack();
+
+        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
+            @Override
+            public void onRotationChanged(int rotation) {
+                synchronized (Device.this) {
+                    screenInfo = screenInfo.withDeviceRotation(rotation);
+
+                    // notify
+                    if (rotationListener != null) {
+                        rotationListener.onRotationChanged(rotation);
+                    }
+                }
+            }
+        }, displayId);
     }
 
     public synchronized void setMaxSize(int newMaxSize) {
@@ -277,6 +309,23 @@ public final class Device {
      * @param mode one of the {@code POWER_MODE_*} constants
      */
     public static boolean setScreenPowerMode(int mode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Change the power mode for all physical displays
+            long[] physicalDisplayIds = SurfaceControl.getPhysicalDisplayIds();
+            if (physicalDisplayIds == null) {
+                Ln.e("Could not get physical display ids");
+                return false;
+            }
+
+            boolean allOk = true;
+            for (long physicalDisplayId : physicalDisplayIds) {
+                IBinder binder = SurfaceControl.getPhysicalDisplayToken(physicalDisplayId);
+                allOk &= SurfaceControl.setDisplayPowerMode(binder, mode);
+            }
+            return allOk;
+        }
+
+        // Older Android versions, only 1 display
         IBinder d = SurfaceControl.getBuiltInDisplay();
         if (d == null) {
             Ln.e("Could not get built-in display");
