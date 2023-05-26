@@ -158,8 +158,7 @@ public final class DisplayManager {
         int VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 9;
         int VIRTUAL_DISPLAY_FLAG_TRUSTED = 1 << 10;
         int flags = VIRTUAL_DISPLAY_FLAG_PUBLIC
-                | VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
-                | VIRTUAL_DISPLAY_FLAG_TRUSTED;
+                | VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY;
 
         try {
             // Android 10
@@ -208,6 +207,18 @@ public final class DisplayManager {
             return display;
         } catch (NoSuchMethodException e) {
         }
+
+        flags |= VIRTUAL_DISPLAY_FLAG_TRUSTED;
+        config = createVirtualDisplayConfig(
+            name,
+            width,
+            height,
+            density,
+            flags,
+            surface,
+            null,
+            0,
+            false);
 
         // Android 13
         Method createVirtualDisplay = manager.getClass().getMethod("createVirtualDisplay",
