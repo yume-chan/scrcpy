@@ -17,6 +17,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.media.projection.MediaProjection;
 import android.os.Handler;
+import android.system.Os;
 
 import java.lang.reflect.Method;
 
@@ -129,7 +130,12 @@ public final class DisplayManager {
             // uid.
             // For ADB shell, the uid is 2000 (shell) and the only avaiable package name is
             // `com.android.shell`
-            return "com.android.shell";
+            // return "android";
+            if (Os.getuid() == 1000) {
+                return "android";
+            } else {
+                return "com.android.shell";
+            }
         }
 
         @Override

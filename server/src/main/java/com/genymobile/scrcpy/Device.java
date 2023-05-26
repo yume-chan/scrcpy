@@ -65,36 +65,7 @@ public final class Device {
 
     public Device(Options options) throws ConfigurationException {
         this.options = options;
-        displayId = options.getDisplayId();
-        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
-        if (displayInfo == null) {
-            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
-            throw new ConfigurationException("Unknown display id: " + displayId);
-        }
-
-        int displayInfoFlags = displayInfo.getFlags();
-
-        deviceSize = displayInfo.getSize();
-        crop = options.getCrop();
-        maxSize = options.getMaxSize();
-        lockVideoOrientation = options.getLockVideoOrientation();
-
-        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
-        layerStack = displayInfo.getLayerStack();
-
-        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
-            @Override
-            public void onRotationChanged(int rotation) {
-                synchronized (Device.this) {
-                    screenInfo = screenInfo.withDeviceRotation(rotation);
-
-                    // notify
-                    if (rotationListener != null) {
-                        rotationListener.onRotationChanged(rotation);
-                    }
-                }
-            }
-        }, displayId);
+        setDisplayId(options.getDisplayId());
 
         if (options.getControl() && options.getClipboardAutosync()) {
             // If control and autosync are enabled, synchronize Android clipboard to the computer automatically
@@ -122,10 +93,6 @@ public final class Device {
             }
         }
 
-        if ((displayInfoFlags & DisplayInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) == 0) {
-            Ln.w("Display doesn't have FLAG_SUPPORTS_PROTECTED_BUFFERS flag, mirroring can be restricted");
-        }
-
         // main display or any display on Android >= Q
         supportsInputEvents = displayId == 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
         if (!supportsInputEvents) {
@@ -151,19 +118,10 @@ public final class Device {
         screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
         layerStack = displayInfo.getLayerStack();
 
-        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
-            @Override
-            public void onRotationChanged(int rotation) {
-                synchronized (Device.this) {
-                    screenInfo = screenInfo.withDeviceRotation(rotation);
+        if ((displayInfoFlags & DisplayInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) == 0) {
+            Ln.w("Display doesn't have FLAG_SUPPORTS_PROTECTED_BUFFERS flag, mirroring can be restricted");
+        }
 
-                    // notify
-                    if (rotationListener != null) {
-                        rotationListener.onRotationChanged(rotation);
-                    }
-                }
-            }
-        }, displayId);
     }
 
     public synchronized void setMaxSize(int newMaxSize) {

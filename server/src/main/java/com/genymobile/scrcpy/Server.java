@@ -2,6 +2,7 @@ package com.genymobile.scrcpy;
 
 import android.os.BatteryManager;
 import android.os.Build;
+import android.system.Os;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -189,10 +190,23 @@ public final class Server {
         return thread;
     }
 
+    @SuppressWarnings("deprecation")
+    private static void dropRoot() {
+        try {
+            if (Os.getuid() == 0) {
+                Os.setuid(1000);
+            }
+        } catch (Throwable e) {
+            // Ignore
+        }
+    }
+
     public static void main(String... args) throws Exception {
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             Ln.e("Exception on thread " + t, e);
         });
+
+        dropRoot();
 
         Options options = Options.parse(args);
 
