@@ -4,6 +4,7 @@ public final class DeviceMessage {
 
     public static final int TYPE_CLIPBOARD = 0;
     public static final int TYPE_ACK_CLIPBOARD = 1;
+    public static final int TYPE_VIRTUAL_DISPLAY_EMPTY = 2;
 
     public static final long SEQUENCE_INVALID = ControlMessage.SEQUENCE_INVALID;
 
@@ -25,6 +26,12 @@ public final class DeviceMessage {
         DeviceMessage event = new DeviceMessage();
         event.type = TYPE_ACK_CLIPBOARD;
         event.sequence = sequence;
+        return event;
+    }
+
+    public static DeviceMessage createVirtualDisplayEmpty() {
+        DeviceMessage event = new DeviceMessage();
+        event.type = TYPE_VIRTUAL_DISPLAY_EMPTY;
         return event;
     }
 

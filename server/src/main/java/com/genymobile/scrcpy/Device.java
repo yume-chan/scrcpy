@@ -385,7 +385,6 @@ public final class Device {
         Intent launchIntent = FakeContext.get().getPackageManager().getLaunchIntentForPackage(packageName);
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
-        Ln.v("Starting " + packageName + " on display " + displayId);
         ActivityOptions launchOptions = ActivityOptions.makeBasic();
         launchOptions.setLaunchDisplayId(displayId);
         launchOptions.setLaunchBounds(null);

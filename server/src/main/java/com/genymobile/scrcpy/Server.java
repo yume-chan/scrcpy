@@ -113,8 +113,10 @@ public final class Server {
                 connection.sendDeviceMeta(Device.getDeviceName());
             }
 
+            DeviceMessageSender sender=null;
             if (control) {
                 Controller controller = new Controller(device, connection, options.getClipboardAutosync(), options.getPowerOn());
+                sender=controller.getSender();
                 device.setClipboardListener(text -> controller.getSender().pushClipboardText(text));
                 asyncProcessors.add(controller);
             }
@@ -150,7 +152,7 @@ public final class Server {
                         asyncProcessors.add(cameraEncoder);
                         break;
                     case VIRTUAL:
-                        VirtualDisplayEncoder virtualDisplayEncoder = new VirtualDisplayEncoder(device,
+                        VirtualDisplayEncoder virtualDisplayEncoder = new VirtualDisplayEncoder(device, sender,
                                 options.getVirtualDisplaySize(), options.getMaxSize(), videoStreamer, options.getVideoBitRate(),
                                 options.getMaxFps(), options.getVideoCodecOptions(), options.getVideoEncoder(),
                                 options.getDownsizeOnError());

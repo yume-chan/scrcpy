@@ -12,6 +12,8 @@ public final class DeviceMessageSender {
 
     private long ack;
 
+    private boolean virtualDisplayEmpty;
+
     public DeviceMessageSender(DesktopConnection connection) {
         this.connection = connection;
     }
@@ -26,12 +28,18 @@ public final class DeviceMessageSender {
         notify();
     }
 
+    public synchronized void pushVirtualDisplayEmpty() {
+        virtualDisplayEmpty = true;
+        notify();
+    }
+
     private void loop() throws IOException, InterruptedException {
         while (!Thread.currentThread().isInterrupted()) {
             String text;
             long sequence;
+            boolean virtualDisplayEmpty;
             synchronized (this) {
-                while (ack == DeviceMessage.SEQUENCE_INVALID && clipboardText == null) {
+                while (ack == DeviceMessage.SEQUENCE_INVALID && clipboardText == null && !this.virtualDisplayEmpty) {
                     wait();
                 }
                 text = clipboardText;
@@ -39,6 +47,9 @@ public final class DeviceMessageSender {
 
                 sequence = ack;
                 ack = DeviceMessage.SEQUENCE_INVALID;
+
+                virtualDisplayEmpty = this.virtualDisplayEmpty;
+                this.virtualDisplayEmpty = false;
             }
 
             if (sequence != DeviceMessage.SEQUENCE_INVALID) {
@@ -47,6 +58,10 @@ public final class DeviceMessageSender {
             }
             if (text != null) {
                 DeviceMessage event = DeviceMessage.createClipboard(text);
+                connection.sendDeviceMessage(event);
+            }
+            if (virtualDisplayEmpty) {
+                DeviceMessage event = DeviceMessage.createVirtualDisplayEmpty();
                 connection.sendDeviceMessage(event);
             }
         }
