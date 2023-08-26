@@ -1,4 +1,12 @@
-package com.genymobile.scrcpy;
+package com.genymobile.scrcpy.video;
+
+import com.genymobile.scrcpy.CodecOption;
+import com.genymobile.scrcpy.ConfigurationException;
+import com.genymobile.scrcpy.Ln;
+import com.genymobile.scrcpy.LogUtils;
+import com.genymobile.scrcpy.Size;
+import com.genymobile.scrcpy.Streamer;
+import com.genymobile.scrcpy.Workarounds;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -27,12 +35,11 @@ public class CameraEncoder extends SurfaceEncoder {
 
     private final String cameraId;
     private final CameraPosition cameraPosition;
+    private final Handler cameraHandler;
 
     private int maxSize;
     private String actualCameraId;
     private CameraDevice cameraDevice;
-
-    private final Handler cameraHandler;
 
     public CameraEncoder(int maxSize, String cameraId, CameraPosition cameraPosition, Streamer streamer,
                          int videoBitRate, int maxFps, List<CodecOption> codecOptions, String encoderName, boolean downsizeOnError) {
@@ -156,6 +163,7 @@ public class CameraEncoder extends SurfaceEncoder {
         }
     }
 
+    @TargetApi(Build.VERSION_CODES.N)
     @Override
     protected Size getSize() throws ConfigurationException {
         try {

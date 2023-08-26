@@ -58,10 +58,10 @@ public class ActivityManager {
             Object[] args;
             if (getContentProviderExternalMethodNewVersion) {
                 // new version
-                args = new Object[]{name, FakeContext.ROOT_UID, token, null};
+                args = new Object[]{ name, FakeContext.ROOT_UID, token, null };
             } else {
                 // old version
-                args = new Object[]{name, FakeContext.ROOT_UID, token};
+                args = new Object[]{ name, FakeContext.ROOT_UID, token };
             }
             // ContentProviderHolder providerHolder = getContentProviderExternal(...);
             Object providerHolder = method.invoke(manager, args);
@@ -76,7 +76,8 @@ public class ActivityManager {
                 return null;
             }
             return new ContentProvider(this, provider, name, token);
-        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException | NoSuchFieldException e) {
+        } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException |
+                 NoSuchFieldException e) {
             Ln.e("Could not invoke method", e);
             return null;
         }
@@ -108,6 +109,11 @@ public class ActivityManager {
 
     @SuppressWarnings("ConstantConditions")
     public int startActivityAsUserWithFeature(Intent intent) {
+      return startActivityAsUserWithFeature(intent, null);
+    }
+
+    @SuppressWarnings("ConstantConditions")
+    public int startActivityAsUserWithFeature(Intent intent, Bundle options) {
         try {
             Method method = getStartActivityAsUserWithFeatureMethod();
             return (int) method.invoke(
@@ -122,7 +128,7 @@ public class ActivityManager {
                     /* requestCode */ 0,
                     /* startFlags */ 0,
                     /* profilerInfo */ null,
-                    /* bOptions */ null,
+                    /* bOptions */ options,
                     /* userId */ /* UserHandle.USER_CURRENT */ -2);
         } catch (Throwable e) {
             Ln.e("Could not invoke method", e);

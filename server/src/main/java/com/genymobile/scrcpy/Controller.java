@@ -2,6 +2,8 @@ package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.wrappers.InputManager;
 
+import android.app.ActivityOptions;
+import android.content.Intent;
 import android.os.Build;
 import android.os.SystemClock;
 import android.view.InputDevice;
@@ -175,6 +177,9 @@ public class Controller implements AsyncProcessor {
                 break;
             case ControlMessage.TYPE_ROTATE_DEVICE:
                 Device.rotateDevice();
+                break;
+            case ControlMessage.TYPE_LAUNCH_APP:
+                device.launchApp(msg.getPackageName());
                 break;
             default:
                 // do nothing

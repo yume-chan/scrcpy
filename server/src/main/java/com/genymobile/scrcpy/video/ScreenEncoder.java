@@ -1,5 +1,10 @@
-package com.genymobile.scrcpy;
+package com.genymobile.scrcpy.video;
 
+import com.genymobile.scrcpy.CodecOption;
+import com.genymobile.scrcpy.Device;
+import com.genymobile.scrcpy.ScreenInfo;
+import com.genymobile.scrcpy.Size;
+import com.genymobile.scrcpy.Streamer;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 
 import android.graphics.Rect;
@@ -16,7 +21,7 @@ public class ScreenEncoder extends SurfaceEncoder implements Device.RotationList
     private IBinder display;
 
     public ScreenEncoder(Device device, Streamer streamer, int videoBitRate, int maxFps, List<CodecOption> codecOptions,
-            String encoderName, boolean downsizeOnError) {
+                         String encoderName, boolean downsizeOnError) {
         super(streamer, videoBitRate, maxFps, codecOptions, encoderName, downsizeOnError);
         this.device = device;
     }
@@ -71,7 +76,7 @@ public class ScreenEncoder extends SurfaceEncoder implements Device.RotationList
         // Since Android 12 (preview), secure displays could not be created with shell permissions anymore.
         // On Android 12 preview, SDK_INT is still R (not S), but CODENAME is "S".
         boolean secure = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || (Build.VERSION.SDK_INT == Build.VERSION_CODES.R && !"S"
-                        .equals(Build.VERSION.CODENAME));
+                .equals(Build.VERSION.CODENAME));
         return SurfaceControl.createDisplay("scrcpy", secure);
     }
 

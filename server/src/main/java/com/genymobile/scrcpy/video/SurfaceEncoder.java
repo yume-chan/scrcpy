@@ -1,9 +1,16 @@
-package com.genymobile.scrcpy;
+package com.genymobile.scrcpy.video;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import com.genymobile.scrcpy.AsyncProcessor;
+import com.genymobile.scrcpy.AudioCaptureForegroundException;
+import com.genymobile.scrcpy.Codec;
+import com.genymobile.scrcpy.CodecOption;
+import com.genymobile.scrcpy.CodecUtils;
+import com.genymobile.scrcpy.ConfigurationException;
+import com.genymobile.scrcpy.IO;
+import com.genymobile.scrcpy.Ln;
+import com.genymobile.scrcpy.LogUtils;
+import com.genymobile.scrcpy.Size;
+import com.genymobile.scrcpy.Streamer;
 
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -11,6 +18,11 @@ import android.media.MediaFormat;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Surface;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class SurfaceEncoder implements AsyncProcessor {
 
@@ -30,16 +42,15 @@ public abstract class SurfaceEncoder implements AsyncProcessor {
     private final int videoBitRate;
     private final int maxFps;
     private final boolean downsizeOnError;
-
-    private boolean firstFrameSent;
-    private int consecutiveErrors;
-
-    private Thread thread;
     private final AtomicBoolean stopped = new AtomicBoolean();
 
+    private boolean headerWritten;
+    private boolean firstFrameSent;
+    private int consecutiveErrors;
+    private Thread thread;
+
     public SurfaceEncoder(Streamer streamer, int videoBitRate, int maxFps, List<CodecOption> codecOptions,
-            String encoderName,
-            boolean downsizeOnError) {
+                          String encoderName, boolean downsizeOnError) {
         this.streamer = streamer;
         this.videoBitRate = videoBitRate;
         this.maxFps = maxFps;
@@ -70,8 +81,6 @@ public abstract class SurfaceEncoder implements AsyncProcessor {
         MediaCodec mediaCodec = createMediaCodec(codec, encoderName);
         MediaFormat format = createFormat(codec.getMimeType(), videoBitRate, maxFps, codecOptions);
 
-        streamer.writeVideoHeader(getSize());
-
         boolean alive;
         try {
             do {
@@ -87,6 +96,11 @@ public abstract class SurfaceEncoder implements AsyncProcessor {
                     setSurface(surface);
 
                     mediaCodec.start();
+
+                    if (!headerWritten) {
+                        headerWritten = true;
+                        streamer.writeVideoHeader(size);
+                    }
 
                     alive = encode(mediaCodec, streamer);
                     // do not call stop() on exception, it would trigger an IllegalStateException
@@ -221,7 +235,7 @@ public abstract class SurfaceEncoder implements AsyncProcessor {
     }
 
     private static MediaFormat createFormat(String videoMimeType, int bitRate, int maxFps,
-            List<CodecOption> codecOptions) {
+                                            List<CodecOption> codecOptions) {
         MediaFormat format = new MediaFormat();
         format.setString(MediaFormat.KEY_MIME, videoMimeType);
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);

@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.pm.ApplicationInfo;
 import android.hardware.camera2.CameraManager;
+import android.hardware.display.DisplayManager;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.AudioRecord;
@@ -25,6 +26,7 @@ public final class Workarounds {
     private static Class<?> activityThreadClass;
     private static Object activityThread;
     private static CameraManager cameraManager;
+    private static DisplayManager displayManager;
 
     private Workarounds() {
         // not instantiable
@@ -325,6 +327,19 @@ public final class Workarounds {
             }
         }
         return cameraManager;
+    }
+
+    public static DisplayManager getDisplayManager() {
+        if (displayManager == null) {
+            try {
+                fillBaseContext();
+                displayManager = DisplayManager.class.getDeclaredConstructor(Context.class)
+                        .newInstance(FakeContext.get());
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException("Cannot create CameraManager", e);
+            }
+        }
+        return displayManager;
     }
 
 }

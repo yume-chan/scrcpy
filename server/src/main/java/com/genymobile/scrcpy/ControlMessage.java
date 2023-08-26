@@ -17,6 +17,7 @@ public final class ControlMessage {
     public static final int TYPE_SET_CLIPBOARD = 9;
     public static final int TYPE_SET_SCREEN_POWER_MODE = 10;
     public static final int TYPE_ROTATE_DEVICE = 11;
+    public static final int TYPE_LAUNCH_APP = 12;
 
     public static final long SEQUENCE_INVALID = 0;
 
@@ -40,6 +41,7 @@ public final class ControlMessage {
     private boolean paste;
     private int repeat;
     private long sequence;
+    private String packageName;
 
     private ControlMessage() {
     }
@@ -62,7 +64,7 @@ public final class ControlMessage {
     }
 
     public static ControlMessage createInjectTouchEvent(int action, long pointerId, Position position, float pressure, int actionButton,
-            int buttons) {
+                                                        int buttons) {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_INJECT_TOUCH_EVENT;
         msg.action = action;
@@ -114,6 +116,13 @@ public final class ControlMessage {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_SET_SCREEN_POWER_MODE;
         msg.action = mode;
+        return msg;
+    }
+
+    public static ControlMessage createLaunchApp(String packageName) {
+        ControlMessage msg = new ControlMessage();
+        msg.type = TYPE_LAUNCH_APP;
+        msg.packageName = packageName;
         return msg;
     }
 
@@ -185,5 +194,9 @@ public final class ControlMessage {
 
     public long getSequence() {
         return sequence;
+    }
+
+    public String getPackageName() {
+        return packageName;
     }
 }

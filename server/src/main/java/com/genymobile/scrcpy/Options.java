@@ -1,5 +1,7 @@
 package com.genymobile.scrcpy;
 
+import com.genymobile.scrcpy.video.CameraPosition;
+
 import android.graphics.Rect;
 
 import java.util.List;
@@ -26,6 +28,7 @@ public class Options {
     private int displayId;
     private String cameraId;
     private CameraPosition cameraPosition = CameraPosition.ALL;
+    private Size virtualDisplaySize;
     private boolean showTouches;
     private boolean stayAwake;
     private List<CodecOption> videoCodecOptions;
@@ -123,6 +126,10 @@ public class Options {
 
     public CameraPosition getCameraPosition() {
         return cameraPosition;
+    }
+
+    public Size getVirtualDisplaySize() {
+        return virtualDisplaySize;
     }
 
     public boolean getShowTouches() {
@@ -301,6 +308,13 @@ public class Options {
                     }
                     options.cameraPosition = cameraPosition;
                     break;
+                case "virtual_display_size":
+                    Size size = parseSize(value);
+                    if (size == null) {
+                        throw new IllegalArgumentException("Virtual display size must have a value");
+                    }
+                    options.virtualDisplaySize = size;
+                    break;
                 case "show_touches":
                     options.showTouches = Boolean.parseBoolean(value);
                     break;
@@ -374,6 +388,19 @@ public class Options {
         }
 
         return options;
+    }
+
+    private static Size parseSize(String size) {
+        if (size.isEmpty()) {
+            return null;
+        }
+        String[] tokens = size.split("x");
+        if (tokens.length != 2) {
+            throw new IllegalArgumentException("Size must be WIDTHxHEIGHT, but got: \"" + size + "\"");
+        }
+        int width = Integer.parseInt(tokens[0]);
+        int height = Integer.parseInt(tokens[1]);
+        return new Size(width, height);
     }
 
     private static Rect parseCrop(String crop) {

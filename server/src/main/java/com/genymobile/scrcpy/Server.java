@@ -1,5 +1,9 @@
 package com.genymobile.scrcpy;
 
+import com.genymobile.scrcpy.video.CameraEncoder;
+import com.genymobile.scrcpy.video.ScreenEncoder;
+import com.genymobile.scrcpy.video.VirtualDisplayEncoder;
+
 import android.os.BatteryManager;
 import android.os.Build;
 
@@ -132,16 +136,26 @@ public final class Server {
             if (video) {
                 Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(),
                         options.getSendCodecMeta(), options.getSendFrameMeta());
-                if (options.getVideoSource() == VideoSource.DISPLAY) {
-                    ScreenEncoder screenEncoder = new ScreenEncoder(device, videoStreamer, options.getVideoBitRate(),
-                            options.getMaxFps(), options.getVideoCodecOptions(), options.getVideoEncoder(),
-                            options.getDownsizeOnError());
-                    asyncProcessors.add(screenEncoder);
-                } else {
-                    CameraEncoder cameraEncoder = new CameraEncoder(options.getMaxSize(), options.getCameraId(),
-                            options.getCameraPosition(), videoStreamer, options.getVideoBitRate(), options.getMaxFps(),
-                            options.getVideoCodecOptions(), options.getVideoEncoder(), options.getDownsizeOnError());
-                    asyncProcessors.add(cameraEncoder);
+                switch (options.getVideoSource()) {
+                    case DISPLAY:
+                        ScreenEncoder screenEncoder = new ScreenEncoder(device, videoStreamer, options.getVideoBitRate(),
+                                options.getMaxFps(), options.getVideoCodecOptions(), options.getVideoEncoder(),
+                                options.getDownsizeOnError());
+                        asyncProcessors.add(screenEncoder);
+                        break;
+                    case CAMERA:
+                        CameraEncoder cameraEncoder = new CameraEncoder(options.getMaxSize(), options.getCameraId(),
+                                options.getCameraPosition(), videoStreamer, options.getVideoBitRate(), options.getMaxFps(),
+                                options.getVideoCodecOptions(), options.getVideoEncoder(), options.getDownsizeOnError());
+                        asyncProcessors.add(cameraEncoder);
+                        break;
+                    case VIRTUAL:
+                        VirtualDisplayEncoder virtualDisplayEncoder = new VirtualDisplayEncoder(device,
+                                options.getVirtualDisplaySize(), options.getMaxSize(), videoStreamer, options.getVideoBitRate(),
+                                options.getMaxFps(), options.getVideoCodecOptions(), options.getVideoEncoder(),
+                                options.getDownsizeOnError());
+                        asyncProcessors.add(virtualDisplayEncoder);
+                        break;
                 }
             }
 

@@ -1,13 +1,16 @@
-package com.genymobile.scrcpy;
+package com.genymobile.scrcpy.video;
+
+import com.genymobile.scrcpy.Workarounds;
 
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
+import android.os.Build;
 
 public enum CameraPosition {
     ALL("all", null),
     FRONT("front", CameraCharacteristics.LENS_FACING_FRONT),
     BACK("back", CameraCharacteristics.LENS_FACING_BACK),
-    EXTERNAL("external", CameraCharacteristics.LENS_FACING_EXTERNAL);
+    EXTERNAL("external", Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? CameraCharacteristics.LENS_FACING_EXTERNAL : -1);
 
     private final String name;
     private final Integer value;
@@ -17,11 +20,21 @@ public enum CameraPosition {
         this.value = value;
     }
 
-    String getName() {
+    public static CameraPosition findByName(String name) {
+        for (CameraPosition cameraPosition : CameraPosition.values()) {
+            if (name.equals(cameraPosition.name)) {
+                return cameraPosition;
+            }
+        }
+
+        return null;
+    }
+
+    public String getName() {
         return name;
     }
 
-    boolean matches(String cameraId) {
+    public boolean matches(String cameraId) {
         if (value == null) {
             return true;
         }
@@ -33,15 +46,5 @@ public enum CameraPosition {
         } catch (CameraAccessException e) {
             return false;
         }
-    }
-
-    static CameraPosition findByName(String name) {
-        for (CameraPosition cameraPosition : CameraPosition.values()) {
-            if (name.equals(cameraPosition.name)) {
-                return cameraPosition;
-            }
-        }
-
-        return null;
     }
 }

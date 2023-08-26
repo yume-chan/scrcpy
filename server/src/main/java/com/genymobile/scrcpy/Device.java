@@ -6,18 +6,25 @@ import com.genymobile.scrcpy.wrappers.ServiceManager;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 import com.genymobile.scrcpy.wrappers.WindowManager;
 
+import android.app.ActivityOptions;
 import android.content.IOnPrimaryClipChangedListener;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
-import android.view.IRotationWatcher;
 import android.view.IDisplayFoldListener;
+import android.view.IRotationWatcher;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
+import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class Device {
@@ -44,60 +51,32 @@ public final class Device {
         void onClipboardTextChanged(String text);
     }
 
-    private final Size deviceSize;
-    private final Rect crop;
-    private int maxSize;
-    private final int lockVideoOrientation;
+    private final Options options;
+    private final AtomicBoolean isSettingClipboard = new AtomicBoolean();
 
+    private Size deviceSize;
+    private Rect crop;
+    private int maxSize;
+    private int lockVideoOrientation;
     private ScreenInfo screenInfo;
     private RotationListener rotationListener;
     private FoldListener foldListener;
     private ClipboardListener clipboardListener;
-    private final AtomicBoolean isSettingClipboard = new AtomicBoolean();
-
     /**
      * Logical display identifier
      */
-    private final int displayId;
+    private int displayId;
 
     /**
      * The surface flinger layer stack associated with this logical display
      */
-    private final int layerStack;
+    private int layerStack;
 
-    private final boolean supportsInputEvents;
+    private boolean supportsInputEvents;
 
     public Device(Options options) throws ConfigurationException {
-        displayId = options.getDisplayId();
-        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
-        if (displayInfo == null) {
-            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
-            throw new ConfigurationException("Unknown display id: " + displayId);
-        }
-
-        int displayInfoFlags = displayInfo.getFlags();
-
-        deviceSize = displayInfo.getSize();
-        crop = options.getCrop();
-        maxSize = options.getMaxSize();
-        lockVideoOrientation = options.getLockVideoOrientation();
-
-        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
-        layerStack = displayInfo.getLayerStack();
-
-        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
-            @Override
-            public void onRotationChanged(int rotation) {
-                synchronized (Device.this) {
-                    screenInfo = screenInfo.withDeviceRotation(rotation);
-
-                    // notify
-                    if (rotationListener != null) {
-                        rotationListener.onRotationChanged(rotation);
-                    }
-                }
-            }
-        }, displayId);
+        this.options = options;
+        setDisplayId(options.getDisplayId());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceManager.getWindowManager().registerDisplayFoldListener(new IDisplayFoldListener.Stub() {
@@ -152,15 +131,6 @@ public final class Device {
             }
         }
 
-        if ((displayInfoFlags & DisplayInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) == 0) {
-            Ln.w("Display doesn't have FLAG_SUPPORTS_PROTECTED_BUFFERS flag, mirroring can be restricted");
-        }
-
-        // main display or any display on Android >= Q
-        supportsInputEvents = displayId == 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
-        if (!supportsInputEvents) {
-            Ln.w("Input events are not supported for secondary displays before Android 10");
-        }
     }
 
     public synchronized void setMaxSize(int newMaxSize) {
@@ -365,5 +335,68 @@ public final class Device {
         if (accelerometerRotation) {
             wm.thawRotation();
         }
+    }
+
+    public void setDisplayId(int displayId) throws ConfigurationException {
+        this.displayId = displayId;
+
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+        if (displayInfo == null) {
+            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+            throw new ConfigurationException("Unknown display id: " + displayId);
+        }
+
+        int displayInfoFlags = displayInfo.getFlags();
+
+        deviceSize = displayInfo.getSize();
+        crop = options.getCrop();
+        maxSize = options.getMaxSize();
+        lockVideoOrientation = options.getLockVideoOrientation();
+
+        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
+        layerStack = displayInfo.getLayerStack();
+
+        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
+            @Override
+            public void onRotationChanged(int rotation) {
+                synchronized (Device.this) {
+                    screenInfo = screenInfo.withDeviceRotation(rotation);
+
+                    // notify
+                    if (rotationListener != null) {
+                        rotationListener.onRotationChanged(rotation);
+                    }
+                }
+            }
+        }, displayId);
+
+        if ((displayInfoFlags & DisplayInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) == 0) {
+            Ln.w("Display doesn't have FLAG_SUPPORTS_PROTECTED_BUFFERS flag, mirroring can be restricted");
+        }
+
+        // main display or any display on Android >= Q
+        supportsInputEvents = displayId == 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+        if (!supportsInputEvents) {
+            Ln.w("Input events are not supported for secondary displays before Android 10");
+        }
+    }
+
+    public void launchApp(String packageName) {
+        Intent launchIntent = FakeContext.get().getPackageManager().getLaunchIntentForPackage(packageName);
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        Ln.v("Starting " + packageName + " on display " + displayId);
+        ActivityOptions launchOptions = ActivityOptions.makeBasic();
+        launchOptions.setLaunchDisplayId(displayId);
+        launchOptions.setLaunchBounds(null);
+
+        try {
+            Method setLaunchWindowingModeMethod = launchOptions.getClass().getDeclaredMethod("setLaunchWindowingMode", int.class);
+            // Set Fullscreen
+            setLaunchWindowingModeMethod.invoke(launchOptions, 1);
+        } catch (ReflectiveOperationException ignore) {
+        }
+
+        ServiceManager.getActivityManager().startActivityAsUserWithFeature(launchIntent, launchOptions.toBundle());
     }
 }
