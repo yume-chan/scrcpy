@@ -4,22 +4,29 @@ import com.genymobile.scrcpy.CodecOption;
 import com.genymobile.scrcpy.ConfigurationException;
 import com.genymobile.scrcpy.Device;
 import com.genymobile.scrcpy.DeviceMessageSender;
-import com.genymobile.scrcpy.FakeContext;
 import com.genymobile.scrcpy.Ln;
+import com.genymobile.scrcpy.Settings;
+import com.genymobile.scrcpy.SettingsException;
 import com.genymobile.scrcpy.Size;
 import com.genymobile.scrcpy.Streamer;
 import com.genymobile.scrcpy.Workarounds;
 
 import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.app.ActivityTaskManager;
+import android.app.IActivityTaskManager;
 import android.app.WindowConfiguration;
-import android.content.Context;
+import android.content.res.Configuration;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.os.Build;
+import android.os.RemoteException;
 import android.view.Surface;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Objects;
 
 public class VirtualDisplayEncoder extends SurfaceEncoder {
     private static final int VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8;
@@ -27,7 +34,7 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
     private static final int VIRTUAL_DISPLAY_FLAG_TRUSTED = 1 << 10;
 
     private final DisplayManager displayManager;
-    private final ActivityTaskManager activityTaskManager;
+    private final IActivityTaskManager activityTaskManager;
 
     private final Device device;
     private final DeviceMessageSender sender;
@@ -35,14 +42,14 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
 
     private VirtualDisplay virtualDisplay;
     private Size actualSize;
-    private TaskStackListener taskStackListener = new TaskStackListener();
+    private final TaskStackListener taskStackListener = new TaskStackListener();
 
     @SuppressLint("WrongConstant")
     public VirtualDisplayEncoder(Device device, DeviceMessageSender sender, Size size, int maxSize, Streamer streamer, int videoBitRate, int maxFps, List<CodecOption> codecOptions, String encoderName, boolean downsizeOnError) {
         super(streamer, videoBitRate, maxFps, codecOptions, encoderName, downsizeOnError);
 
         displayManager = Workarounds.getDisplayManager();
-        activityTaskManager = (ActivityTaskManager) FakeContext.get().getSystemService(Context.ACTIVITY_TASK_SERVICE);
+        activityTaskManager = ActivityTaskManager.getService();
 
         this.device = device;
         this.sender = sender;
@@ -51,7 +58,17 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
     }
 
     @Override
-    protected void initialize() {
+    protected void initialize() throws ConfigurationException {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Ln.e("Virtual display is not supported before Android 11");
+            throw new ConfigurationException("Virtual display is not supported before Android 11");
+        }
+
+        try {
+            Settings.putValue(Settings.TABLE_GLOBAL, "force_desktop_mode_on_external_displays", "1");
+        } catch (SettingsException e) {
+            Ln.w("Failed to set desktop mode on virtual display, some apps won't work correctly", e);
+        }
     }
 
     @Override
@@ -72,10 +89,11 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
     @SuppressLint("WrongConstant")
     @Override
     protected void setSurface(Surface surface) {
-        int flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY | VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        int flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY | VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL | VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             flags |= VIRTUAL_DISPLAY_FLAG_TRUSTED;
         }
+
         virtualDisplay = displayManager.createVirtualDisplay("scrcpy", actualSize.getWidth(), actualSize.getHeight(), 200, surface, flags);
         int displayId = virtualDisplay.getDisplay().getDisplayId();
         try {
@@ -86,8 +104,12 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
 
         if (sender != null) {
             Ln.d("Start task stack listener");
-            taskStackListener.onTaskStackChanged();
-            activityTaskManager.registerTaskStackListener(taskStackListener);
+            try {
+                taskStackListener.onTaskStackChanged();
+                activityTaskManager.registerTaskStackListener(taskStackListener);
+            } catch (RemoteException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -96,28 +118,49 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
         if (virtualDisplay != null) {
             virtualDisplay.release();
         }
-        activityTaskManager.unregisterTaskStackListener(taskStackListener);
+        try {
+            activityTaskManager.unregisterTaskStackListener(taskStackListener);
+        } catch (RemoteException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     class TaskStackListener extends android.app.TaskStackListener {
         @Override
+        @TargetApi(Build.VERSION_CODES.R)
         public void onTaskStackChanged() {
             try {
+                if (Build.VERSION.SDK_INT == Build.VERSION_CODES.R) {
+                    IActivityTaskManager manager = ActivityTaskManager.getService();
+                    Method getAllStackInfosOnDisplayMethod = manager.getClass().getDeclaredMethod("getAllStackInfosOnDisplay", int.class);
+                    List<?> stackInfoList = (List<?>) Objects.requireNonNull(getAllStackInfosOnDisplayMethod.invoke(manager, virtualDisplay.getDisplay().getDisplayId()));
+                    for (Object stackInfo : stackInfoList) {
+                        Field configurationField = stackInfo.getClass().getDeclaredField("configuration");
+                        Configuration configuration = (Configuration) Objects.requireNonNull(configurationField.get(stackInfo));
+                        int activityType = configuration.windowConfiguration.getActivityType();
+
+                        Field visibleField = stackInfo.getClass().getDeclaredField("visible");
+                        boolean visible = visibleField.getBoolean(stackInfo);
+
+                        if (activityType == WindowConfiguration.ACTIVITY_TYPE_STANDARD && visible) {
+                            return;
+                        }
+                    }
+                    Ln.d("push virtual display empty");
+                    return;
+                }
+
                 List<ActivityTaskManager.RootTaskInfo> rootTaskInfoList = ActivityTaskManager.getService().getAllRootTaskInfosOnDisplay(virtualDisplay.getDisplay().getDisplayId());
-                Ln.d("root task count: " + rootTaskInfoList.size());
-                boolean hasVisibleRootTask = false;
+                Ln.v("root task count: " + rootTaskInfoList.size());
                 for (ActivityTaskManager.RootTaskInfo rootTaskInfo : rootTaskInfoList) {
-                    Ln.d("root task " + (rootTaskInfo.topActivity != null ? rootTaskInfo.topActivity.getPackageName() : "Unknown") + ", visible=" + rootTaskInfo.visible + ", type=" + rootTaskInfo.getActivityType());
+                    Ln.v("root task " + (rootTaskInfo.topActivity != null ? rootTaskInfo.topActivity.getPackageName() : "Unknown") + ", visible=" + rootTaskInfo.visible + ", type=" + rootTaskInfo.getActivityType());
                     if (rootTaskInfo.getActivityType() == WindowConfiguration.ACTIVITY_TYPE_STANDARD && rootTaskInfo.visible) {
                         Ln.d("found visible root task");
-                        hasVisibleRootTask = true;
-                        break;
+                        return;
                     }
                 }
-                if (!hasVisibleRootTask) {
-                    Ln.d("push virtual display empty");
+                Ln.d("push virtual display empty");
 //                    sender.pushVirtualDisplayEmpty();
-                }
             } catch (Throwable e) {
                 Ln.e("error", e);
             }
