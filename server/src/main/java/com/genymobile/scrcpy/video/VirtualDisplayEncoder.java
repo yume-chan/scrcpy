@@ -32,20 +32,21 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
     private static final int VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL = 1 << 8;
     private static final int VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS = 1 << 9;
     private static final int VIRTUAL_DISPLAY_FLAG_TRUSTED = 1 << 10;
+    private static final int VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP = 1 << 11;
+    private static final int VIRTUAL_DISPLAY_FLAG_ALWAYS_UNLOCKED = 1 << 12;
 
     private final DisplayManager displayManager;
     private final IActivityTaskManager activityTaskManager;
 
     private final Device device;
     private final DeviceMessageSender sender;
-    private final Size requestedSize;
-
+    private final DisplaySize requestedSize;
+    private final TaskStackListener taskStackListener = new TaskStackListener();
     private VirtualDisplay virtualDisplay;
     private Size actualSize;
-    private final TaskStackListener taskStackListener = new TaskStackListener();
 
     @SuppressLint("WrongConstant")
-    public VirtualDisplayEncoder(Device device, DeviceMessageSender sender, Size size, int maxSize, Streamer streamer, int videoBitRate, int maxFps, List<CodecOption> codecOptions, String encoderName, boolean downsizeOnError) {
+    public VirtualDisplayEncoder(Device device, DeviceMessageSender sender, DisplaySize size, int maxSize, Streamer streamer, int videoBitRate, int maxFps, List<CodecOption> codecOptions, String encoderName, boolean downsizeOnError) {
         super(streamer, videoBitRate, maxFps, codecOptions, encoderName, downsizeOnError);
 
         displayManager = Workarounds.getDisplayManager();
@@ -82,7 +83,7 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
             float scale = Math.min((float) size / requestedSize.getWidth(), (float) size / requestedSize.getHeight());
             actualSize = new Size((int) (requestedSize.getWidth() * scale), (int) (requestedSize.getHeight() * scale));
         } else {
-            actualSize = requestedSize;
+            actualSize = new Size(requestedSize.getWidth(), requestedSize.getHeight());
         }
     }
 
@@ -91,10 +92,10 @@ public class VirtualDisplayEncoder extends SurfaceEncoder {
     protected void setSurface(Surface surface) {
         int flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY | VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL | VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            flags |= VIRTUAL_DISPLAY_FLAG_TRUSTED;
+            flags |= VIRTUAL_DISPLAY_FLAG_SHOULD_SHOW_SYSTEM_DECORATIONS | VIRTUAL_DISPLAY_FLAG_TRUSTED | VIRTUAL_DISPLAY_FLAG_OWN_DISPLAY_GROUP | VIRTUAL_DISPLAY_FLAG_ALWAYS_UNLOCKED;
         }
 
-        virtualDisplay = displayManager.createVirtualDisplay("scrcpy", actualSize.getWidth(), actualSize.getHeight(), 200, surface, flags);
+        virtualDisplay = displayManager.createVirtualDisplay("scrcpy", actualSize.getWidth(), actualSize.getHeight(), requestedSize.getDensity(), surface, flags);
         int displayId = virtualDisplay.getDisplay().getDisplayId();
         try {
             device.setDisplayId(displayId);

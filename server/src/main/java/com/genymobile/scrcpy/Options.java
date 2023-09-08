@@ -1,6 +1,7 @@
 package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.video.CameraPosition;
+import com.genymobile.scrcpy.video.DisplaySize;
 
 import android.graphics.Rect;
 
@@ -28,7 +29,7 @@ public class Options {
     private int displayId;
     private String cameraId;
     private CameraPosition cameraPosition = CameraPosition.ALL;
-    private Size virtualDisplaySize;
+    private DisplaySize virtualDisplaySize;
     private boolean showTouches;
     private boolean stayAwake;
     private List<CodecOption> videoCodecOptions;
@@ -128,7 +129,7 @@ public class Options {
         return cameraPosition;
     }
 
-    public Size getVirtualDisplaySize() {
+    public DisplaySize getVirtualDisplaySize() {
         return virtualDisplaySize;
     }
 
@@ -309,7 +310,7 @@ public class Options {
                     options.cameraPosition = cameraPosition;
                     break;
                 case "virtual_display_size":
-                    Size size = parseSize(value);
+                    DisplaySize size = DisplaySize.parse(value);
                     if (size == null) {
                         throw new IllegalArgumentException("Virtual display size must have a value");
                     }
