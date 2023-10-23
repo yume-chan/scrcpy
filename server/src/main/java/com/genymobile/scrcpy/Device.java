@@ -6,6 +6,8 @@ import com.genymobile.scrcpy.wrappers.ServiceManager;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 import com.genymobile.scrcpy.wrappers.WindowManager;
 
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
 import android.app.ActivityOptions;
 import android.content.IOnPrimaryClipChangedListener;
 import android.content.Intent;
@@ -381,6 +383,8 @@ public final class Device {
         }
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
+    @SuppressLint("BlockedPrivateApi")
     public void launchApp(String packageName) {
         Intent launchIntent = FakeContext.get().getPackageManager().getLaunchIntentForPackage(packageName);
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
