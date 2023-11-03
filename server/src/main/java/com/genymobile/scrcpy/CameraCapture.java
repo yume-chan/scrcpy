@@ -4,6 +4,8 @@ import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
+import android.content.ComponentName;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -20,6 +22,7 @@ import android.media.MediaCodec;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.ServiceManagerNative;
 import android.util.Range;
 import android.view.Surface;
 
@@ -64,6 +67,34 @@ public class CameraCapture extends SurfaceCapture {
         this.highSpeed = highSpeed;
     }
 
+    private CameraDevice retryOpenCamera(String id) throws  InterruptedException{
+        Ln.i("Waiting for audio capture to start");
+        Thread.sleep(2000);
+
+        Ln.w("Hacking into your device to forcefully enable camera...");
+        int retry = 0;
+        while (true) {
+            try {
+                Intent intent = new Intent(Intent.ACTION_MAIN);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                intent.addCategory(Intent.CATEGORY_LAUNCHER);
+                intent.setComponent(new ComponentName(FakeContext.PACKAGE_NAME, "com.android.shell.HeapDumpActivity"));
+                ServiceManager.getActivityManager().startActivityAsUserWithFeature(intent);
+                ServiceManager.getActivityManager().startActivityAsUserWithFeature(intent);
+                ServiceManager.getActivityManager().forceStopPackage(FakeContext.PACKAGE_NAME);
+
+                Thread.sleep(100);
+
+                CameraDevice device = openCamera(id);
+                Ln.i("Your device has been hacked after " + retry + " retries");
+                return device;
+            } catch (Throwable e) {
+                Thread.sleep(1000);
+                retry += 1;
+            }
+        }
+    }
+
     @Override
     public void init() throws IOException {
         cameraThread = new HandlerThread("camera");
@@ -83,7 +114,11 @@ public class CameraCapture extends SurfaceCapture {
             }
 
             Ln.i("Using camera '" + cameraId + "'");
-            cameraDevice = openCamera(cameraId);
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.R) {
+                cameraDevice = retryOpenCamera(cameraId);
+            } else {
+                cameraDevice = openCamera(cameraId);
+            }
         } catch (CameraAccessException | InterruptedException e) {
             throw new IOException(e);
         }
