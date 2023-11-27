@@ -2,6 +2,7 @@ package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.wrappers.ClipboardManager;
 import com.genymobile.scrcpy.wrappers.DisplayControl;
+import com.genymobile.scrcpy.wrappers.DisplayManager;
 import com.genymobile.scrcpy.wrappers.InputManager;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
@@ -9,8 +10,10 @@ import com.genymobile.scrcpy.wrappers.WindowManager;
 
 import android.content.IOnPrimaryClipChangedListener;
 import android.graphics.Rect;
+import android.hardware.display.IDisplayManagerCallback;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.RemoteException;
 import android.os.SystemClock;
 import android.view.IDisplayFoldListener;
 import android.view.IRotationWatcher;
@@ -45,11 +48,11 @@ public final class Device {
         void onClipboardTextChanged(String text);
     }
 
-    private final Size deviceSize;
     private final Rect crop;
     private int maxSize;
     private final int lockVideoOrientation;
 
+    private Size deviceSize;
     private ScreenInfo screenInfo;
     private RotationListener rotationListener;
     private FoldListener foldListener;
@@ -78,13 +81,28 @@ public final class Device {
 
         int displayInfoFlags = displayInfo.getFlags();
 
-        deviceSize = displayInfo.getSize();
         crop = options.getCrop();
         maxSize = options.getMaxSize();
         lockVideoOrientation = options.getLockVideoOrientation();
 
+        deviceSize = displayInfo.getSize();
         screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
         layerStack = displayInfo.getLayerStack();
+
+        ServiceManager.getDisplayManager().registerCallback(new IDisplayManagerCallback.Stub() {
+            @Override
+            public void onDisplayEvent(int displayId, int event) throws RemoteException {
+                if (Device.this.displayId == displayId && event == DisplayManager.EVENT_DISPLAY_CHANGED) {
+                    DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+                    deviceSize = displayInfo.getSize();
+                    screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
+
+                    if (foldListener != null) {
+                        foldListener.onFoldChanged(displayId, false);
+                    }
+                }
+            }
+        });
 
         ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
             @Override

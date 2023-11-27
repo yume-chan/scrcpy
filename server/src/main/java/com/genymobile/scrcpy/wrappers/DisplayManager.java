@@ -5,6 +5,7 @@ import com.genymobile.scrcpy.DisplayInfo;
 import com.genymobile.scrcpy.Ln;
 import com.genymobile.scrcpy.Size;
 
+import android.hardware.display.IDisplayManagerCallback;
 import android.view.Display;
 
 import java.lang.reflect.Field;
@@ -12,10 +13,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class DisplayManager {
-    private final Object manager; // instance of hidden class android.hardware.display.DisplayManagerGlobal
+    public static final int EVENT_DISPLAY_CHANGED = 2;
 
-    public DisplayManager(Object manager) {
+    private final Object manager; // instance of hidden class android.hardware.display.DisplayManagerGlobal
+    private final Object service; // instance of hidden class android.hardware.display.IDisplayManager
+
+    public DisplayManager(Object manager, Object service) {
         this.manager = manager;
+        this.service = service;
     }
 
     // public to call it from unit tests
@@ -90,6 +95,17 @@ public final class DisplayManager {
     public int[] getDisplayIds() {
         try {
             return (int[]) manager.getClass().getMethod("getDisplayIds").invoke(manager);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    public void registerCallback(IDisplayManagerCallback.Stub listener) {
+        try {
+            service
+                .getClass()
+                .getDeclaredMethod("registerCallback", IDisplayManagerCallback.class)
+                .invoke(service, listener);
         } catch (Exception e) {
             throw new AssertionError(e);
         }

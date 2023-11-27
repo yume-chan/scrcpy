@@ -61,7 +61,7 @@ public final class ServiceManager {
                 Class<?> clazz = Class.forName("android.hardware.display.DisplayManagerGlobal");
                 Method getInstanceMethod = clazz.getDeclaredMethod("getInstance");
                 Object dmg = getInstanceMethod.invoke(null);
-                displayManager = new DisplayManager(dmg);
+                displayManager = new DisplayManager(dmg, getService("display", "android.hardware.display.IDisplayManager"));
             } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
                 throw new AssertionError(e);
             }
