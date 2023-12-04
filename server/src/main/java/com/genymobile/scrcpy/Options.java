@@ -30,6 +30,7 @@ public class Options {
     private CameraAspectRatio cameraAspectRatio;
     private int cameraFps;
     private boolean cameraHighSpeed;
+    private DisplaySize virtualDisplaySize;
     private boolean showTouches;
     private boolean stayAwake;
     private List<CodecOption> videoCodecOptions;
@@ -144,6 +145,10 @@ public class Options {
 
     public boolean getCameraHighSpeed() {
         return cameraHighSpeed;
+    }
+
+    public DisplaySize getVirtualDisplaySize() {
+        return virtualDisplaySize;
     }
 
     public boolean getShowTouches() {
@@ -321,6 +326,13 @@ public class Options {
                     break;
                 case "display_id":
                     options.displayId = Integer.parseInt(value);
+                    break;
+                case "virtual_display_size":
+                    DisplaySize size = DisplaySize.parse(value);
+                    if (size == null) {
+                        throw new IllegalArgumentException("Virtual display size must have a value");
+                    }
+                    options.virtualDisplaySize = size;
                     break;
                 case "show_touches":
                     options.showTouches = Boolean.parseBoolean(value);

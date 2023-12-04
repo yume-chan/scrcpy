@@ -108,6 +108,11 @@ public final class ActivityManager {
 
     @SuppressWarnings("ConstantConditions")
     public int startActivityAsUserWithFeature(Intent intent) {
+        return startActivityAsUserWithFeature(intent, null);
+    }
+
+    @SuppressWarnings("ConstantConditions")
+    public int startActivityAsUserWithFeature(Intent intent, Bundle options) {
         try {
             Method method = getStartActivityAsUserWithFeatureMethod();
             return (int) method.invoke(
@@ -122,7 +127,7 @@ public final class ActivityManager {
                     /* requestCode */ 0,
                     /* startFlags */ 0,
                     /* profilerInfo */ null,
-                    /* bOptions */ null,
+                    /* bOptions */ options,
                     /* userId */ /* UserHandle.USER_CURRENT */ -2);
         } catch (Throwable e) {
             Ln.e("Could not invoke method", e);

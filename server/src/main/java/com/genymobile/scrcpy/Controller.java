@@ -176,6 +176,9 @@ public class Controller implements AsyncProcessor {
             case ControlMessage.TYPE_ROTATE_DEVICE:
                 Device.rotateDevice();
                 break;
+            case ControlMessage.TYPE_LAUNCH_APP:
+                device.launchApp(msg.getPackageName());
+                break;
             default:
                 // do nothing
         }

@@ -109,7 +109,7 @@ public final class Server {
         boolean video = options.getVideo();
         boolean audio = options.getAudio();
         boolean sendDummyByte = options.getSendDummyByte();
-        boolean camera = video && options.getVideoSource() == VideoSource.CAMERA;
+        boolean camera = video && options.getVideoSource() == VideoSource.CAMERA || options.getVideoSource() == VideoSource.VIRTUAL;
 
         final Device device = camera ? null : new Device(options);
 
@@ -147,11 +147,19 @@ public final class Server {
                 Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
                         options.getSendFrameMeta());
                 SurfaceCapture surfaceCapture;
-                if (options.getVideoSource() == VideoSource.DISPLAY) {
-                    surfaceCapture = new ScreenCapture(device);
-                } else {
-                    surfaceCapture = new CameraCapture(options.getCameraId(), options.getCameraFacing(), options.getCameraSize(),
-                            options.getMaxSize(), options.getCameraAspectRatio(), options.getCameraFps(), options.getCameraHighSpeed());
+                switch (options.getVideoSource()) {
+                    case DISPLAY:
+                        surfaceCapture = new ScreenCapture(device);
+                        break;
+                    case CAMERA:
+                        surfaceCapture = new CameraCapture(options.getCameraId(), options.getCameraFacing(), options.getCameraSize(),
+                                options.getMaxSize(), options.getCameraAspectRatio(), options.getCameraFps(), options.getCameraHighSpeed());
+                        break;
+                    case VIRTUAL:
+                        surfaceCapture = new VirtualDisplayCapture(device, options.getVirtualDisplaySize(), options.getMaxSize());
+                        break;
+                    default:
+                        throw new ConfigurationException("Unsupported videoSource");
                 }
                 SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, videoStreamer, options.getVideoBitRate(), options.getMaxFps(),
                         options.getVideoCodecOptions(), options.getVideoEncoder(), options.getDownsizeOnError());

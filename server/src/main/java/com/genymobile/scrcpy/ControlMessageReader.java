@@ -86,6 +86,9 @@ public class ControlMessageReader {
             case ControlMessage.TYPE_ROTATE_DEVICE:
                 msg = ControlMessage.createEmpty(type);
                 break;
+            case ControlMessage.TYPE_LAUNCH_APP:
+                msg = parseLaunchApp();
+                break;
             default:
                 Ln.w("Unknown event type: " + type);
                 msg = null;
@@ -191,6 +194,14 @@ public class ControlMessageReader {
         }
         int mode = buffer.get();
         return ControlMessage.createSetScreenPowerMode(mode);
+    }
+
+    private ControlMessage parseLaunchApp() {
+        String packageName = parseString();
+        if (packageName == null) {
+            return null;
+        }
+        return ControlMessage.createLaunchApp(packageName);
     }
 
     private static Position readPosition(ByteBuffer buffer) {

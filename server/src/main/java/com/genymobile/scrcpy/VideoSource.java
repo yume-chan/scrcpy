@@ -2,7 +2,8 @@ package com.genymobile.scrcpy;
 
 public enum VideoSource {
     DISPLAY("display"),
-    CAMERA("camera");
+    CAMERA("camera"),
+    VIRTUAL("virtual");
 
     private final String name;
 

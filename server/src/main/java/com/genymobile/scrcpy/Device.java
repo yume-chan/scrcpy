@@ -7,7 +7,11 @@ import com.genymobile.scrcpy.wrappers.ServiceManager;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 import com.genymobile.scrcpy.wrappers.WindowManager;
 
+import android.annotation.SuppressLint;
+import android.annotation.TargetApi;
+import android.app.ActivityOptions;
 import android.content.IOnPrimaryClipChangedListener;
+import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.IBinder;
@@ -19,6 +23,7 @@ import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
+import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class Device {
@@ -59,46 +64,21 @@ public final class Device {
     /**
      * Logical display identifier
      */
-    private final int displayId;
+    private int displayId;
 
     /**
      * The surface flinger layer stack associated with this logical display
      */
-    private final int layerStack;
+    private int layerStack;
 
-    private final boolean supportsInputEvents;
+    private boolean supportsInputEvents;
 
     public Device(Options options) throws ConfigurationException {
-        displayId = options.getDisplayId();
-        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
-        if (displayInfo == null) {
-            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
-            throw new ConfigurationException("Unknown display id: " + displayId);
-        }
-
-        int displayInfoFlags = displayInfo.getFlags();
-
-        deviceSize = displayInfo.getSize();
         crop = options.getCrop();
         maxSize = options.getMaxSize();
         lockVideoOrientation = options.getLockVideoOrientation();
 
-        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
-        layerStack = displayInfo.getLayerStack();
-
-        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
-            @Override
-            public void onRotationChanged(int rotation) {
-                synchronized (Device.this) {
-                    screenInfo = screenInfo.withDeviceRotation(rotation);
-
-                    // notify
-                    if (rotationListener != null) {
-                        rotationListener.onRotationChanged(rotation);
-                    }
-                }
-            }
-        }, displayId);
+        setDisplayId(options.getDisplayId());
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceManager.getWindowManager().registerDisplayFoldListener(new IDisplayFoldListener.Stub() {
@@ -152,6 +132,37 @@ public final class Device {
                 Ln.w("No clipboard manager, copy-paste between device and computer will not work");
             }
         }
+    }
+
+    public void setDisplayId(int displayId) throws ConfigurationException {
+        this.displayId = displayId;
+
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+        if (displayInfo == null) {
+            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+            throw new ConfigurationException("Unknown display id: " + displayId);
+        }
+
+        int displayInfoFlags = displayInfo.getFlags();
+
+        deviceSize = displayInfo.getSize();
+
+        screenInfo = ScreenInfo.computeScreenInfo(displayInfo.getRotation(), deviceSize, crop, maxSize, lockVideoOrientation);
+        layerStack = displayInfo.getLayerStack();
+
+        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
+            @Override
+            public void onRotationChanged(int rotation) {
+                synchronized (Device.this) {
+                    screenInfo = screenInfo.withDeviceRotation(rotation);
+
+                    // notify
+                    if (rotationListener != null) {
+                        rotationListener.onRotationChanged(rotation);
+                    }
+                }
+            }
+        }, displayId);
 
         if ((displayInfoFlags & DisplayInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) == 0) {
             Ln.w("Display doesn't have FLAG_SUPPORTS_PROTECTED_BUFFERS flag, mirroring can be restricted");
@@ -371,5 +382,25 @@ public final class Device {
         if (accelerometerRotation) {
             wm.thawRotation();
         }
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
+    @SuppressLint("BlockedPrivateApi")
+    public void launchApp(String packageName) {
+        Intent launchIntent = FakeContext.get().getPackageManager().getLaunchIntentForPackage(packageName);
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        ActivityOptions launchOptions = ActivityOptions.makeBasic();
+        launchOptions.setLaunchDisplayId(displayId);
+        launchOptions.setLaunchBounds(null);
+
+        try {
+            Method setLaunchWindowingModeMethod = launchOptions.getClass().getDeclaredMethod("setLaunchWindowingMode", int.class);
+            // Set Fullscreen
+            setLaunchWindowingModeMethod.invoke(launchOptions, 1);
+        } catch (ReflectiveOperationException ignore) {
+        }
+
+        ServiceManager.getActivityManager().startActivityAsUserWithFeature(launchIntent, launchOptions.toBundle());
     }
 }
