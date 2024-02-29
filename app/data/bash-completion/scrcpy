@@ -28,7 +28,7 @@ _scrcpy() {
         --forward-all-clicks
         -h --help
         -K
-        --keyboard
+        --keyboard=
         --kill-adb-on-close
         --legacy-paste
         --list-camera-sizes

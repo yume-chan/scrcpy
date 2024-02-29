@@ -647,6 +647,9 @@ scrcpy(struct scrcpy_options *options) {
             kp = &s->keyboard_sdk.key_processor;
         } else if (options->keyboard_input_mode
                 == SC_KEYBOARD_INPUT_MODE_UHID) {
+            if (!uhid_devices) {
+                sc_uhid_devices_init(&s->uhid_devices);
+            }
             bool ok = sc_keyboard_uhid_init(&s->keyboard_uhid, &s->controller,
                                             &s->uhid_devices);
             if (!ok) {

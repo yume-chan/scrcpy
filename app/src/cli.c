@@ -387,7 +387,7 @@ static const struct sc_option options[] = {
                 "MOD+k (except in OTG mode) or by executing: `adb shell am "
                 "start -a android.settings.HARD_KEYBOARD_SETTINGS`.\n"
                 "This option is only available when a HID keyboard is enabled "
-                "enabled (or a physical keyboard is connected).\n"
+                "(or a physical keyboard is connected).\n"
                 "Also see --mouse.",
     },
     {

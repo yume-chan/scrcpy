@@ -62,8 +62,6 @@ performance problems in some games, where these events are useless anyway.
 
 To avoid forwarding repeated key events:
 
-To avoid forwarding repeated key events:
-
 ```bash
 scrcpy --no-key-repeat
 ```
