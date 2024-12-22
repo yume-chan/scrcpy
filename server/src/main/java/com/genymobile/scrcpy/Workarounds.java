@@ -42,6 +42,11 @@ public final class Workarounds {
             Field sCurrentActivityThreadField = ACTIVITY_THREAD_CLASS.getDeclaredField("sCurrentActivityThread");
             sCurrentActivityThreadField.setAccessible(true);
             sCurrentActivityThreadField.set(null, ACTIVITY_THREAD);
+
+            // activityThread.mSystemThread = true;
+            Field mSystemThreadField = ACTIVITY_THREAD_CLASS.getDeclaredField("mSystemThread");
+            mSystemThreadField.setAccessible(true);
+            mSystemThreadField.setBoolean(ACTIVITY_THREAD, true);
         } catch (Exception e) {
             throw new AssertionError(e);
         }
@@ -132,10 +137,13 @@ public final class Workarounds {
         try {
             Class<?> configurationControllerClass = Class.forName("android.app.ConfigurationController");
             Class<?> activityThreadInternalClass = Class.forName("android.app.ActivityThreadInternal");
+
+            // configurationController = new ConfigurationController(ACTIVITY_THREAD);
             Constructor<?> configurationControllerConstructor = configurationControllerClass.getDeclaredConstructor(activityThreadInternalClass);
             configurationControllerConstructor.setAccessible(true);
             Object configurationController = configurationControllerConstructor.newInstance(ACTIVITY_THREAD);
 
+            // ACTIVITY_THREAD.mConfigurationController = configurationController;
             Field configurationControllerField = ACTIVITY_THREAD_CLASS.getDeclaredField("mConfigurationController");
             configurationControllerField.setAccessible(true);
             configurationControllerField.set(ACTIVITY_THREAD, configurationController);

@@ -74,6 +74,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt update
           sudo apt install -y meson ninja-build nasm ffmpeg libsdl2-2.0-0 \
              libsdl2-dev libavcodec-dev libavdevice-dev libavformat-dev \
              libavutil-dev libswresample-dev libusb-1.0-0 libusb-1.0-0-dev \
@@ -99,6 +100,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt update
           sudo apt install -y meson ninja-build nasm ffmpeg libsdl2-2.0-0 \
              libsdl2-dev libavcodec-dev libavdevice-dev libavformat-dev \
              libavutil-dev libswresample-dev libusb-1.0-0 libusb-1.0-0-dev \
@@ -129,13 +131,11 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt update
           sudo apt install -y meson ninja-build nasm ffmpeg libsdl2-2.0-0 \
              libsdl2-dev libavcodec-dev libavdevice-dev libavformat-dev \
              libavutil-dev libswresample-dev libusb-1.0-0 libusb-1.0-0-dev \
              mingw-w64 mingw-w64-tools libz-mingw-w64-dev
-
-      - name: Workaround for old meson version run by Github Actions
-        run: sed -i 's/^pkg-config/pkgconfig/' cross_win32.txt
 
       - name: Build
         run: release/build_windows.sh 32
@@ -162,13 +162,11 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt update
           sudo apt install -y meson ninja-build nasm ffmpeg libsdl2-2.0-0 \
              libsdl2-dev libavcodec-dev libavdevice-dev libavformat-dev \
              libavutil-dev libswresample-dev libusb-1.0-0 libusb-1.0-0-dev \
              mingw-w64 mingw-w64-tools libz-mingw-w64-dev
-
-      - name: Workaround for old meson version run by Github Actions
-        run: sed -i 's/^pkg-config/pkgconfig/' cross_win64.txt
 
       - name: Build
         run: release/build_windows.sh 64
@@ -208,6 +206,13 @@ jobs:
                 libtool
 
       - name: Build
+        env:
+          # the default Xcode (and macOS SDK) version can be found at
+          # <https://github.com/actions/runner-images/blob/main/images/macos/macos-13-Readme.md#xcode>
+          #
+          # then the minimal supported deployment target of that macOS SDK can be found at
+          # <https://developer.apple.com/support/xcode/#minimum-requirements>
+          MACOSX_DEPLOYMENT_TARGET: 10.13
         run: release/build_macos.sh aarch64
 
       # upload-artifact does not preserve permissions
@@ -244,6 +249,13 @@ jobs:
              # autoconf and libtool are already installed on macos-13
 
       - name: Build
+        env:
+          # the default Xcode (and macOS SDK) version can be found at
+          # <https://github.com/actions/runner-images/blob/main/images/macos/macos-13-Readme.md#xcode>
+          #
+          # then the minimal supported deployment target of that macOS SDK can be found at
+          # <https://developer.apple.com/support/xcode/#minimum-requirements>
+          MACOSX_DEPLOYMENT_TARGET: 10.13
         run: release/build_macos.sh x86_64
 
       # upload-artifact does not preserve permissions
