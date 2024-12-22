@@ -135,20 +135,8 @@ public final class Device {
             return ServiceManager.getDisplayManager().requestDisplayPower(displayId, on);
         }
 
-        boolean applyToMultiPhysicalDisplays = Build.VERSION.SDK_INT >= AndroidVersions.API_29_ANDROID_10;
-
-        if (applyToMultiPhysicalDisplays
-                && Build.VERSION.SDK_INT >= AndroidVersions.API_34_ANDROID_14
-                && Build.BRAND.equalsIgnoreCase("honor")
-                && SurfaceControl.hasGetBuildInDisplayMethod()) {
-            // Workaround for Honor devices with Android 14:
-            //  - <https://github.com/Genymobile/scrcpy/issues/4823>
-            //  - <https://github.com/Genymobile/scrcpy/issues/4943>
-            applyToMultiPhysicalDisplays = false;
-        }
-
         int mode = on ? POWER_MODE_NORMAL : POWER_MODE_OFF;
-        if (applyToMultiPhysicalDisplays) {
+        if (Build.VERSION.SDK_INT >= AndroidVersions.API_29_ANDROID_10) {
             // On Android 14, these internal methods have been moved to DisplayControl
             boolean useDisplayControl =
                     Build.VERSION.SDK_INT >= AndroidVersions.API_34_ANDROID_14 && !SurfaceControl.hasGetPhysicalDisplayIdsMethod();
