@@ -1,8 +1,10 @@
 package com.genymobile.scrcpy.control;
 
 import com.genymobile.scrcpy.AndroidVersions;
+import com.genymobile.scrcpy.device.DisplayInfo;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.StringUtils;
+import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 import android.os.Build;
 import android.os.HandlerThread;
@@ -21,6 +23,32 @@ import java.nio.charset.StandardCharsets;
 
 public final class UhidManager {
 
+    static class Device {
+        String inputPort;
+        FileDescriptor fd;
+
+        Device(String inputPort, FileDescriptor fd, int displayId) {
+            this.inputPort = inputPort;
+            this.fd = fd;
+            setDisplayId(displayId);
+        }
+
+        void setDisplayId(int displayId) {
+            if (Build.VERSION.SDK_INT >= AndroidVersions.API_34_ANDROID_14 && displayId != 0) {
+                DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+                ServiceManager.getInputManager().addUniqueIdAssociationByPort(inputPort, displayInfo.getUniqueId());
+            }
+        }
+
+        void close() {
+            if (Build.VERSION.SDK_INT >= AndroidVersions.API_34_ANDROID_14) {
+                ServiceManager.getInputManager().removeUniqueIdAssociationByPort(inputPort);
+            }
+            
+            UhidManager.close(fd);
+        }
+    }
+
     // Linux: include/uapi/linux/uhid.h
     private static final int UHID_OUTPUT = 6;
     private static final int UHID_CREATE2 = 11;
@@ -31,11 +59,13 @@ public final class UhidManager {
 
     private static final int SIZE_OF_UHID_EVENT = 4380; // sizeof(struct uhid_event)
 
-    private final ArrayMap<Integer, FileDescriptor> fds = new ArrayMap<>();
+    private final ArrayMap<Integer, Device> devices = new ArrayMap<>();
     private final ByteBuffer buffer = ByteBuffer.allocate(SIZE_OF_UHID_EVENT).order(ByteOrder.nativeOrder());
 
     private final DeviceMessageSender sender;
     private final MessageQueue queue;
+
+    private int displayId = 0;
 
     public UhidManager(DeviceMessageSender sender) {
         this.sender = sender;
@@ -52,13 +82,15 @@ public final class UhidManager {
         try {
             FileDescriptor fd = Os.open("/dev/uhid", OsConstants.O_RDWR, 0);
             try {
-                FileDescriptor old = fds.put(id, fd);
+                // Must be unique across the system
+                String inputPort = "scrcpy:" + Os.getpid() + ":" + id;
+                Device old = devices.put(id, new Device(inputPort, fd, displayId));
                 if (old != null) {
                     Ln.w("Duplicate UHID id: " + id);
-                    close(old);
+                    old.close();
                 }
 
-                byte[] req = buildUhidCreate2Req(vendorId, productId, name, reportDesc);
+                byte[] req = buildUhidCreate2Req(vendorId, productId, name, inputPort, reportDesc);
                 Os.write(fd, req, 0, req.length);
 
                 registerUhidListener(id, fd);
@@ -68,6 +100,13 @@ public final class UhidManager {
             }
         } catch (ErrnoException e) {
             throw new IOException(e);
+        }
+    }
+
+    public void setDisplayId(int displayId) {
+        this.displayId = displayId;
+        for (Device device : devices.values()) {
+            device.setDisplayId(displayId);
         }
     }
 
@@ -134,21 +173,21 @@ public final class UhidManager {
     }
 
     public void writeInput(int id, byte[] data) throws IOException {
-        FileDescriptor fd = fds.get(id);
-        if (fd == null) {
+        Device device = devices.get(id);
+        if (device == null) {
             Ln.w("Unknown UHID id: " + id);
             return;
         }
 
         try {
             byte[] req = buildUhidInput2Req(data);
-            Os.write(fd, req, 0, req.length);
+            Os.write(device.fd, req, 0, req.length);
         } catch (ErrnoException e) {
             throw new IOException(e);
         }
     }
 
-    private static byte[] buildUhidCreate2Req(int vendorId, int productId, String name, byte[] reportDesc) {
+    private static byte[] buildUhidCreate2Req(int vendorId, int productId, String name, String phys, byte[] reportDesc) {
         /*
          * struct uhid_event {
          *     uint32_t type;
@@ -170,16 +209,21 @@ public final class UhidManager {
          * } __attribute__((__packed__));
          */
 
-        byte[] empty = new byte[256];
         ByteBuffer buf = ByteBuffer.allocate(280 + reportDesc.length).order(ByteOrder.nativeOrder());
         buf.putInt(UHID_CREATE2);
 
         String actualName = name.isEmpty() ? "scrcpy" : name;
-        byte[] utf8Name = actualName.getBytes(StandardCharsets.UTF_8);
-        int len = StringUtils.getUtf8TruncationIndex(utf8Name, 127);
-        assert len <= 127;
-        buf.put(utf8Name, 0, len);
-        buf.put(empty, 0, 256 - len);
+        byte[] nameBytes = actualName.getBytes(StandardCharsets.UTF_8);
+        int nameLen = StringUtils.getUtf8TruncationIndex(nameBytes, 127);
+        buf.put(nameBytes, 0, nameLen);
+        buf.position(buf.position() + 128 - nameLen);
+
+        byte[] physBytes = phys.getBytes(StandardCharsets.UTF_8);
+        int physLen = StringUtils.getUtf8TruncationIndex(physBytes, 63);
+        buf.put(physBytes, 0, physLen);
+        buf.position(buf.position() + 64 - physLen);
+
+        buf.position(buf.position() + 64); // uniq
 
         buf.putShort((short) reportDesc.length);
         buf.putShort(BUS_VIRTUAL);
@@ -215,18 +259,18 @@ public final class UhidManager {
     public void close(int id) {
         // Linux: Documentation/hid/uhid.rst
         // If you close() the fd, the device is automatically unregistered and destroyed internally.
-        FileDescriptor fd = fds.remove(id);
-        if (fd != null) {
-            unregisterUhidListener(fd);
-            close(fd);
+        Device device = devices.remove(id);
+        if (device != null) {
+            unregisterUhidListener(device.fd);
+            device.close();
         } else {
             Ln.w("Closing unknown UHID device: " + id);
         }
     }
 
     public void closeAll() {
-        for (FileDescriptor fd : fds.values()) {
-            close(fd);
+        for (Device device : devices.values()) {
+            device.close();
         }
     }
 
