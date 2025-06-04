@@ -1,6 +1,7 @@
 package com.genymobile.scrcpy.video;
 
 import com.genymobile.scrcpy.AndroidVersions;
+import com.genymobile.scrcpy.FakeContext;
 import com.genymobile.scrcpy.Options;
 import com.genymobile.scrcpy.device.ConfigurationException;
 import com.genymobile.scrcpy.device.Orientation;
@@ -9,7 +10,6 @@ import com.genymobile.scrcpy.opengl.AffineOpenGLFilter;
 import com.genymobile.scrcpy.opengl.OpenGLFilter;
 import com.genymobile.scrcpy.opengl.OpenGLRunner;
 import com.genymobile.scrcpy.util.AffineMatrix;
-import com.genymobile.scrcpy.util.HandlerExecutor;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.LogUtils;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
@@ -29,8 +29,6 @@ import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.MediaCodec;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.util.Range;
 import android.view.Surface;
 
@@ -40,7 +38,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
@@ -71,10 +68,7 @@ public class CameraCapture extends SurfaceCapture {
     private AffineMatrix transform;
     private OpenGLRunner glRunner;
 
-    private HandlerThread cameraThread;
-    private Handler cameraHandler;
     private CameraDevice cameraDevice;
-    private Executor cameraExecutor;
 
     private final AtomicBoolean disconnected = new AtomicBoolean();
 
@@ -94,11 +88,6 @@ public class CameraCapture extends SurfaceCapture {
 
     @Override
     protected void init() throws ConfigurationException, IOException {
-        cameraThread = new HandlerThread("camera");
-        cameraThread.start();
-        cameraHandler = new Handler(cameraThread.getLooper());
-        cameraExecutor = new HandlerExecutor(cameraHandler);
-
         try {
             cameraId = selectCamera(explicitCameraId, cameraFacing);
             if (cameraId == null) {
@@ -284,9 +273,6 @@ public class CameraCapture extends SurfaceCapture {
         if (cameraDevice != null) {
             cameraDevice.close();
         }
-        if (cameraThread != null) {
-            cameraThread.quitSafely();
-        }
     }
 
     @Override
@@ -308,7 +294,7 @@ public class CameraCapture extends SurfaceCapture {
     @TargetApi(AndroidVersions.API_31_ANDROID_12)
     private CameraDevice openCamera(String id) throws CameraAccessException, InterruptedException {
         CompletableFuture<CameraDevice> future = new CompletableFuture<>();
-        ServiceManager.getCameraManager().openCamera(id, new CameraDevice.StateCallback() {
+        ServiceManager.getCameraManager().openCamera(id, FakeContext.get().getMainExecutor(), new CameraDevice.StateCallback() {
             @Override
             public void onOpened(CameraDevice camera) {
                 Ln.d("Camera opened successfully");
@@ -343,7 +329,7 @@ public class CameraCapture extends SurfaceCapture {
                 }
                 future.completeExceptionally(new CameraAccessException(cameraAccessExceptionErrorCode));
             }
-        }, cameraHandler);
+        });
 
         try {
             return future.get();
@@ -359,7 +345,7 @@ public class CameraCapture extends SurfaceCapture {
         List<OutputConfiguration> outputs = Arrays.asList(outputConfig);
 
         int sessionType = highSpeed ? SessionConfiguration.SESSION_HIGH_SPEED : SessionConfiguration.SESSION_REGULAR;
-        SessionConfiguration sessionConfig = new SessionConfiguration(sessionType, outputs, cameraExecutor, new CameraCaptureSession.StateCallback() {
+        SessionConfiguration sessionConfig = new SessionConfiguration(sessionType, outputs, FakeContext.get().getMainExecutor(), new CameraCaptureSession.StateCallback() {
             @Override
             public void onConfigured(CameraCaptureSession session) {
                 future.complete(session);
@@ -408,9 +394,9 @@ public class CameraCapture extends SurfaceCapture {
         if (highSpeed) {
             CameraConstrainedHighSpeedCaptureSession highSpeedSession = (CameraConstrainedHighSpeedCaptureSession) session;
             List<CaptureRequest> requests = highSpeedSession.createHighSpeedRequestList(request);
-            highSpeedSession.setRepeatingBurst(requests, callback, cameraHandler);
+            highSpeedSession.setRepeatingBurstRequests(requests, FakeContext.get().getMainExecutor(), callback);
         } else {
-            session.setRepeatingRequest(request, callback, cameraHandler);
+            session.setSingleRepeatingRequest(request, FakeContext.get().getMainExecutor(), callback);
         }
     }
 
