@@ -77,6 +77,7 @@ public final class Workarounds {
         fillAppContext();
     }
 
+    /** @noinspection JavaReflectionMemberAccess, unchecked , DataFlowIssue */
     @SuppressWarnings("deprecation")
     private static void prepareMainLooper() {
         // Some devices internally create a Handler when creating an input Surface, causing an exception:
@@ -88,6 +89,19 @@ public final class Workarounds {
         //    on a null object reference"
         // <https://github.com/Genymobile/scrcpy/issues/921>
         Looper.prepareMainLooper();
+
+        new Thread(() -> {
+            try {
+                Field sThreadLocalField = Looper.class.getDeclaredField("sThreadLocal");
+                sThreadLocalField.setAccessible(true);
+                ThreadLocal<Looper> sThreadLocal = (ThreadLocal<Looper>) sThreadLocalField.get(null);
+                sThreadLocal.set(Looper.getMainLooper());
+            } catch (NoSuchFieldException | IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+
+            Looper.loop();
+        }, "main-looper").start();
     }
 
     private static void fillAppInfo() {
