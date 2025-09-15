@@ -7,15 +7,14 @@ import com.genymobile.scrcpy.device.Size;
 import com.genymobile.scrcpy.util.Command;
 import com.genymobile.scrcpy.util.Ln;
 
+import android.annotation.RequiresApi;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
-import android.content.Context;
 import android.hardware.display.VirtualDisplay;
 import android.os.Handler;
 import android.view.Display;
 import android.view.Surface;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -167,11 +166,9 @@ public final class DisplayManager {
         return (VirtualDisplay) method.invoke(null, name, width, height, displayIdToMirror, surface);
     }
 
-    public VirtualDisplay createNewVirtualDisplay(String name, int width, int height, int dpi, Surface surface, int flags) throws Exception {
-        Constructor<android.hardware.display.DisplayManager> ctor = android.hardware.display.DisplayManager.class.getDeclaredConstructor(
-                Context.class);
-        ctor.setAccessible(true);
-        android.hardware.display.DisplayManager dm = ctor.newInstance(FakeContext.get());
+    @RequiresApi(AndroidVersions.API_31_ANDROID_12)
+    public VirtualDisplay createNewVirtualDisplay(String name, int width, int height, int dpi, Surface surface, int flags) {
+        android.hardware.display.DisplayManager dm = FakeContext.get().getSystemService(android.hardware.display.DisplayManager.class);
         return dm.createVirtualDisplay(name, width, height, dpi, surface, flags);
     }
 

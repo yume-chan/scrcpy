@@ -1,14 +1,14 @@
 package com.genymobile.scrcpy.wrappers;
 
+import com.genymobile.scrcpy.AndroidVersions;
 import com.genymobile.scrcpy.FakeContext;
 
+import android.annotation.RequiresApi;
 import android.annotation.SuppressLint;
-import android.content.Context;
 import android.hardware.camera2.CameraManager;
 import android.os.IBinder;
 import android.os.IInterface;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 
 @SuppressLint("PrivateApi,DiscouragedPrivateApi")
@@ -98,11 +98,11 @@ public final class ServiceManager {
         return activityManager;
     }
 
+    @RequiresApi(AndroidVersions.API_31_ANDROID_12)
     public static CameraManager getCameraManager() {
         if (cameraManager == null) {
             try {
-                Constructor<CameraManager> ctor = CameraManager.class.getDeclaredConstructor(Context.class);
-                cameraManager = ctor.newInstance(FakeContext.get());
+                cameraManager = FakeContext.get().getSystemService(CameraManager.class);
             } catch (Exception e) {
                 throw new AssertionError(e);
             }

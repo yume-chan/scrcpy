@@ -6,6 +6,7 @@ import com.genymobile.scrcpy.util.Ln;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Application;
+import android.app.LoadedApk;
 import android.content.AttributionSource;
 import android.content.Context;
 import android.content.ContextWrapper;
@@ -101,17 +102,30 @@ public final class Workarounds {
         }
     }
 
+    /** @noinspection JavaReflectionMemberAccess*/
     private static void fillAppContext() {
         try {
+            Context context = FakeContext.get();
+
             Application app = new Application();
             Field baseField = ContextWrapper.class.getDeclaredField("mBase");
             baseField.setAccessible(true);
-            baseField.set(app, FakeContext.get());
+            baseField.set(app, context);
+
+            Field mPackageInfoField = context.getClass().getDeclaredField("mPackageInfo");
+            mPackageInfoField.setAccessible(true);
+            LoadedApk mPackageInfo = (LoadedApk) mPackageInfoField.get(context);
+
+            Field mApplicationField = LoadedApk.class.getDeclaredField("mApplication");
+            mApplicationField.setAccessible(true);
+            mApplicationField.set(mPackageInfo, app);
 
             // activityThread.mInitialApplication = app;
             Field mInitialApplicationField = ACTIVITY_THREAD_CLASS.getDeclaredField("mInitialApplication");
             mInitialApplicationField.setAccessible(true);
             mInitialApplicationField.set(ACTIVITY_THREAD, app);
+
+            Ln.e("getApplicationContext: " + FakeContext.get().getApplicationContext());
         } catch (Throwable throwable) {
             // this is a workaround, so failing is not an error
             Ln.d("Could not fill app context: " + throwable.getMessage());
@@ -142,9 +156,7 @@ public final class Workarounds {
             Method getSystemContextMethod = ACTIVITY_THREAD_CLASS.getDeclaredMethod("getSystemContext");
             return (Context) getSystemContextMethod.invoke(ACTIVITY_THREAD);
         } catch (Throwable throwable) {
-            // this is a workaround, so failing is not an error
-            Ln.d("Could not get system context: " + throwable.getMessage());
-            return null;
+            throw new RuntimeException("Could not get system context", throwable);
         }
     }
 
